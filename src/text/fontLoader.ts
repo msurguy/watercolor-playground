@@ -4,8 +4,8 @@
 // flattened to polylines in em units (1 = the em height), baseline at y = 0,
 // y down, ready to be driven along by a brush.
 
-/** A pen-down ... pen-up run of points, in em units. */
-export type Polyline = [number, number][];
+import type { Polyline } from '../draw/StrokeWriter';
+export type { Polyline };
 
 export interface Glyph {
   strokes: Polyline[];

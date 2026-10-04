@@ -273,6 +273,35 @@ void main(){
   o = vec4(lit, h, fibre, 1.0);
 }`;
 
+// Paint-bucket wash. uField holds, per document texel, the distance travelled from the
+// tap through the chosen area (r, px; -1 outside it) and the distance to the area's edge
+// (g, px). The front is a ramp uWidth px wide: a texel at distance r has received the
+// fraction ramp(t - r) of its deposit once the front has reached t, so the frame that
+// moves the front from uFrom to uTo lays down the difference. Summed over all frames
+// that is exactly one deposit per texel, with no frame boundary to leave a tide line.
+// Water is drawn with MAX blending, so it gets the cumulative ramp instead. MRT like splatFS.
+export const fillFS = `${HEADER}
+layout(location=0) out vec4 o0;
+layout(location=1) out vec4 o1;
+uniform highp sampler2D uField;
+uniform sampler2D uPaper;
+uniform float uFrom, uTo, uWidth, uSoft, uGrain, uGrainThr, uJitter;
+uniform int uCumulative;
+uniform vec4 uColor0, uColor1;
+float ramp(float x){ return smoothstep(0.0, 1.0, clamp(x / uWidth, 0.0, 1.0)); }
+void main(){
+  vec2 f = texture(uField, vUv).rg;
+  if (f.r < 0.0) discard;
+  float h = texture(uPaper, vUv).g;
+  float r = max(0.0, f.r + (h - 0.5) * uJitter);
+  float w = ramp(uTo - r) - (uCumulative == 1 ? 0.0 : ramp(uFrom - r));
+  if (w <= 0.0) discard;
+  float edge = uSoft > 0.0 ? smoothstep(0.0, uSoft, f.g + 0.5) : 1.0;
+  w *= edge * mix(1.0, smoothstep(uGrainThr - 0.08, uGrainThr + 0.08, h), uGrain);
+  o0 = uColor0 * w;
+  o1 = uColor1 * w;
+}`;
+
 /** Final composite: spectral reconstruction of pigment on paper. */
 export const displayFS = `${HEADER}
 out vec4 o;
@@ -280,6 +309,7 @@ uniform sampler2D uInkA, uInkB, uFixedA, uFixedB, uWet, uPaper;
 uniform vec4 uView;       // canvas px -> document uv: uv = (fragCoord - xy) / zw
 uniform vec2 uTexel;      // document texel size
 uniform float uGranulation, uEdgeDarken;
+uniform float uFlat;      // 1: ignore the paper's relief, grain and wetness (for region picking)
 uniform vec3 uDesk;
 
 vec3 toSRGB(vec3 c){
@@ -292,7 +322,7 @@ void main(){
   vec2 uv = (gl_FragCoord.xy - uView.xy) / uView.zw;
   if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0){ o = vec4(uDesk, 1.0); return; }
 
-  vec4 paper = texture(uPaper, uv);
+  vec4 paper = mix(texture(uPaper, uv), vec4(0.5), uFlat);
   vec4 iB = texture(uInkB, uv);
   vec4 a = texture(uInkA, uv) + texture(uFixedA, uv);
   vec3 b = iB.rgb + texture(uFixedB, uv).rgb;
@@ -304,7 +334,7 @@ void main(){
   float l = density(uv - vec2(uTexel.x, 0.0)), r = density(uv + vec2(uTexel.x, 0.0));
   float bt = density(uv - vec2(0.0, uTexel.y)), t = density(uv + vec2(0.0, uTexel.y));
   float edge = min(length(vec2(r - l, t - bt)) / (d0 + 1.0), 1.0);
-  float k = gran * (1.0 + uEdgeDarken * edge);
+  float k = mix(gran * (1.0 + uEdgeDarken * edge), 1.0, uFlat);
   a *= k; b *= k;
 
   vec3 rgb = vec3(0.0);
@@ -321,7 +351,7 @@ ${displayBasisGLSL()}
   col = mix(col, vec3(0.96, 0.955, 0.94) * (0.96 + 0.05 * paper.r), cov);
 
   // Wet paper reads darker and slightly cool.
-  float ws = smoothstep(0.02, 0.7, texture(uWet, uv).x);
+  float ws = smoothstep(0.02, 0.7, texture(uWet, uv).x) * (1.0 - uFlat);
   col *= vec3(1.0) - ws * vec3(0.12, 0.11, 0.08);
 
   o = vec4(toSRGB(col), 1.0);

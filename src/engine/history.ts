@@ -38,6 +38,7 @@ export class History {
   private tilesX: number;
   private tilesY: number;
   private steps: Step[] = [];
+  private redoSteps: Step[] = [];
   private maxSteps = 50;
 
   /** `groups[i]` lists a pool's layer formats and its capacity in documents' worth of tiles. */
@@ -49,8 +50,10 @@ export class History {
   }
 
   get canUndo() { return this.steps.length > 0; }
+  get canRedo() { return this.redoSteps.length > 0; }
 
   begin(meta: unknown) {
+    this.clearRedo();   // a new action forks history
     this.steps.push({ tiles: this.pools.map(() => new Map()), meta });
     while (this.steps.length > this.maxSteps) this.dropOldest();
   }
@@ -66,8 +69,7 @@ export class History {
       for (let tx = tx0; tx <= tx1; tx++) {
         const id = ty * this.tilesX + tx;
         if (saved.has(id)) continue;
-        while (!pool.free.length && this.steps.length > 1) this.dropOldest();
-        const slot = pool.free.pop();
+        const slot = this.allocSlot(pool, 'protect');
         if (slot === undefined) return; // a pool holds at least one whole document
         saved.set(id, slot);
         this.copyTile(pool, id, slot, layers, true);
@@ -77,15 +79,38 @@ export class History {
 
   /**
    * Restore the last step. `layers[p][i]` lists every framebuffer that should receive
-   * layer i of pool p (both halves of a ping-pong pair). Returns the step's meta.
+   * layer i of pool p (both halves of a ping-pong pair; the first is read from when the
+   * current content is saved for redo). `metaNow` is the engine state to come back to
+   * on redo. Returns the step's meta and the document rect that changed.
    */
-  undo(layers: WebGLFramebuffer[][][]): { meta: unknown; rect: Rect | null } | null {
-    const step = this.steps.pop();
+  undo(layers: WebGLFramebuffer[][][], metaNow: unknown) {
+    return this.swap(this.steps, this.redoSteps, layers, metaNow, 0);
+  }
+
+  /** Re-apply the last undone step. */
+  redo(layers: WebGLFramebuffer[][][], metaNow: unknown) {
+    return this.swap(this.redoSteps, this.steps, layers, metaNow, 1);
+  }
+
+  /**
+   * Undo and redo are the same move in opposite directions: pop a step from `from`,
+   * save the tiles it covers as they are now, restore its tiles, and push the saved
+   * ones onto `to`. `keep` says which stack is protected when slots run short.
+   */
+  private swap(from: Step[], to: Step[], layers: WebGLFramebuffer[][][], metaNow: unknown, keep: 0 | 1): { meta: unknown; rect: Rect | null } | null {
+    const step = from.pop();
     if (!step) return null;
+    const back: Step = { tiles: this.pools.map(() => new Map()), meta: metaNow };
+    let complete = true;
     let rect: Rect | null = null;
     step.tiles.forEach((saved, p) => {
       const pool = this.pools[p];
       for (const [id, slot] of saved) {
+        if (complete) {
+          const now = this.allocSlot(pool, keep === 0 ? 'undo' : 'redo');
+          if (now === undefined) complete = false;
+          else { this.copyTile(pool, id, now, layers[p].map(l => l[0]), true); back.tiles[p].set(id, now); }
+        }
         const copies = Math.max(...layers[p].map(l => l.length));
         for (let c = 0; c < copies; c++)
           this.copyTile(pool, id, slot, layers[p].map(l => l[Math.min(c, l.length - 1)]), false);
@@ -95,12 +120,39 @@ export class History {
         pool.free.push(slot);
       }
     });
+    // without room for every tile the way back is lost: drop it rather than restore half a step later
+    if (complete) to.push(back); else this.release(back);
     return { meta: step.meta, rect };
+  }
+
+  /**
+   * A free slot of `pool`, making room if needed. While recording or undoing, redo
+   * steps go first (newest first: they are the cheapest to lose), then the oldest
+   * undo steps; the step being recorded is never dropped. While redoing, old undo
+   * steps go before the remaining redo steps.
+   */
+  private allocSlot(pool: Pool, mode: 'protect' | 'undo' | 'redo'): number | undefined {
+    while (!pool.free.length) {
+      if (mode !== 'redo' && this.redoSteps.length) this.release(this.redoSteps.pop()!);
+      else if (this.steps.length > (mode === 'protect' ? 1 : 0)) this.release(this.steps.shift()!);
+      else if (mode === 'redo' && this.redoSteps.length) this.release(this.redoSteps.pop()!);
+      else break;
+    }
+    return pool.free.pop();
   }
 
   private dropOldest() {
     const s = this.steps.shift();
-    if (s) s.tiles.forEach((saved, p) => { for (const slot of saved.values()) this.pools[p].free.push(slot); });
+    if (s) this.release(s);
+  }
+
+  private clearRedo() {
+    for (const s of this.redoSteps) this.release(s);
+    this.redoSteps = [];
+  }
+
+  private release(s: Step) {
+    s.tiles.forEach((saved, p) => { for (const slot of saved.values()) this.pools[p].free.push(slot); });
   }
 
   private copyTile(pool: Pool, id: number, slot: number, layers: WebGLFramebuffer[], save: boolean) {

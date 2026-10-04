@@ -3,7 +3,8 @@ import { icon } from '../ui/icons';
 import { ATLAS, DEFAULT_FONT, FONTS, fontGroups, fontLabel, fontUrl } from './fonts';
 import { loadFont, type Font } from './fontLoader';
 import { layoutText, type Align, type TextLayout } from './layout';
-import { TextWriter } from './TextWriter';
+import { penSpeed, StrokeWriter } from '../draw/StrokeWriter';
+import { createGhost } from '../draw/ghost';
 
 // The Text tool: a panel to compose one line of text in a single-stroke font,
 // a ghost of it under the pointer, and on tap the TextWriter draws it on the
@@ -42,8 +43,6 @@ const ALIGNS: { id: Align; label: string }[] = [{ id: 'left', label: 'Left' }, {
 
 /** Em height in document heights. */
 export const emSize = (v: number) => 0.03 * Math.pow(12, v);
-/** Pen speed in document heights per second. */
-export const penSpeed = (v: number) => 0.05 * Math.pow(40, v);
 
 const esc = (s: string) => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 
@@ -64,7 +63,7 @@ export function createTextTool(engine: WatercolorEngine, root: HTMLElement, canv
   let layout: TextLayout | null = null;
   let active = false;
   let hover: [number, number] | null = null;     // document uv under the pointer
-  const writer = new TextWriter(engine);
+  const writer = new StrokeWriter(engine);
 
   /* ---------------------------------------------------------------- markup */
 
@@ -103,12 +102,7 @@ export function createTextTool(engine: WatercolorEngine, root: HTMLElement, canv
     </div>`;
   root.appendChild(panel);
 
-  // ghost of the text under the pointer
-  const ghost = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  ghost.setAttribute('class', 'ghost');
-  ghost.innerHTML = '<path/>';
-  root.appendChild(ghost);
-  const ghostPath = ghost.querySelector('path')!;
+  const ghost = createGhost(root);   // the text under the pointer
 
   const input = panel.querySelector<HTMLInputElement>('.text-input')!;
   const fontList = panel.querySelector<HTMLElement>('.fontlist')!;
@@ -154,7 +148,7 @@ export function createTextTool(engine: WatercolorEngine, root: HTMLElement, canv
 
   /** Client-space path of the ghost at the hovered anchor. */
   function renderGhost() {
-    if (!active || !layout || !hover || writer.busy) { ghost.style.display = 'none'; return; }
+    if (!active || !layout || !hover || writer.busy) { ghost.hide(); return; }
     const em = emSize(settings.size), a = engine.aspect;
     const [ax, ay] = hover;
     let d = '';
@@ -167,8 +161,7 @@ export function createTextTool(engine: WatercolorEngine, root: HTMLElement, canv
     // baseline tick at the anchor
     const [bx, by] = engine.docToClient(ax, ay);
     d += `M${(bx - 6).toFixed(1)} ${by.toFixed(1)}h12M${bx.toFixed(1)} ${(by - 6).toFixed(1)}v12`;
-    ghostPath.setAttribute('d', d);
-    ghost.style.display = '';
+    ghost.set(d);
   }
 
   /* --------------------------------------------------------------- actions */
@@ -211,11 +204,14 @@ export function createTextTool(engine: WatercolorEngine, root: HTMLElement, canv
 
   function writeAt(anchor: [number, number]) {
     if (!layout?.strokes.length || writer.busy) return;
+    const em = emSize(settings.size);
     const opts = {
-      tool: settings.tool, size: emSize(settings.size), speed: penSpeed(settings.speed),
+      tool: settings.tool, ref: em, speed: penSpeed(settings.speed),
       pressure: settings.pressure, taper: settings.taper, wobble: settings.wobble,
     };
-    writer.write(layout, anchor, opts, {
+    // em units (y down) -> document heights relative to the anchor (y up)
+    const strokes = layout.strokes.map(pl => pl.map(([x, y]) => [x * em, -y * em] as [number, number]));
+    writer.write(strokes, anchor, opts, {
       onProgress: (done, total) => renderStatus([done, total]),
       onDone: () => { renderStatus(); renderGhost(); },
     });

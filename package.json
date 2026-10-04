@@ -12,5 +12,9 @@
   "devDependencies": {
     "typescript": "^7.0.2",
     "vite": "^8.3.2"
+  },
+  "dependencies": {
+    "q-floodfill": "^1.3.1",
+    "vpype-js": "^0.1.0"
   }
 }

@@ -23,7 +23,7 @@ export const DEFAULT_PARAMS: Params = {
 };
 
 export interface EngineCallbacks {
-  onHistoryChange?(canUndo: boolean): void;
+  onHistoryChange?(canUndo: boolean, canRedo: boolean): void;
   /** The active tool changed for the current stroke (pencil barrel / finger-as-water). */
   onStrokeTool?(tool: Tool | null): void;
 }
@@ -57,6 +57,10 @@ const HALF_FLOAT_RG: Format = { internal: WebGL2RenderingContext.RG16F, format: 
 const HALF_FLOAT_R: Format = { internal: WebGL2RenderingContext.R16F, format: WebGL2RenderingContext.RED, type: WebGL2RenderingContext.HALF_FLOAT };
 const HALF_FLOAT_RGBA: Format = { internal: WebGL2RenderingContext.RGBA16F, format: WebGL2RenderingContext.RGBA, type: WebGL2RenderingContext.HALF_FLOAT };
 const RGBA8: Format = { internal: WebGL2RenderingContext.RGBA8, format: WebGL2RenderingContext.RGBA, type: WebGL2RenderingContext.UNSIGNED_BYTE };
+const FLOAT_RG: Format = { internal: WebGL2RenderingContext.RG32F, format: WebGL2RenderingContext.RG, type: WebGL2RenderingContext.FLOAT };
+const FILL_WATER_LEAD = 10;    // px the water runs ahead of the pigment in a bucket fill
+const FILL_WIDTH = 24;         // px over which a bucket fill's front ramps up
+const FILL_JITTER = 3;         // px the paper grain roughens a bucket fill's front
 
 const SIM_BASE = 256;          // short side of the velocity / pressure grid
 const PRESSURE_ITERATIONS = 20;
@@ -120,6 +124,7 @@ export class WatercolorEngine {
 
   // input
   private stroke: Stroke | null = null;
+  private fill: { tex: WebGLTexture; bbox: Rect } | null = null;   // a paint-bucket wash in progress
   private queue: Sample[] = [];
   private pencilSeen = false;
   private hover = { x: 0, y: 0, inside: false, type: 'mouse' };
@@ -140,6 +145,7 @@ export class WatercolorEngine {
     this.programs = {
       splat: this.g.program(S.splatFS),
       stamp: this.g.program(S.stampFS),
+      fill: this.g.program(S.fillFS),
       advectVelocity: this.g.program(S.advectVelocityFS),
       divergence: this.g.program(S.divergenceFS),
       pressure: this.g.program(S.pressureFS),
@@ -214,7 +220,7 @@ export class WatercolorEngine {
     this.wetPeak = 0;
     this.fixTimer = 0;
     this.fitView();
-    this.callbacks.onHistoryChange?.(false);
+    this.callbacks.onHistoryChange?.(false, false);
   }
 
   /* ------------------------------------------------------------- public API */
@@ -231,6 +237,100 @@ export class WatercolorEngine {
   docToClient(x: number, y: number): [number, number] {
     const r = this.canvas.getBoundingClientRect();
     return [r.left + (this.view.x + x * this.view.w) / this.dpr, r.top + (this.canvasSize[1] - this.view.y - y * this.view.h) / this.dpr];
+  }
+
+  /** Document size in texels. */
+  get docSize(): [number, number] { return [this.dw, this.dh]; }
+
+  /* ------------------------------------------------- paint-bucket fills (fill) */
+
+  /** Is a bucket fill in progress? */
+  get filling() { return this.fill !== null; }
+
+  /** How far (px) past the farthest field distance a fill must run so its roughened front covers everything. */
+  get fillMargin() { return FILL_WIDTH + FILL_JITTER + 1; }
+
+  /**
+   * The document as a flat image: pigment on plain paper with no relief, grain, edge
+   * darkening or wet tint, so areas of one colour read as one colour. RGBA8, row 0 is
+   * document y = 0 (uv is y-up, so no flip is needed to index it by texel).
+   */
+  readFlat(): Uint8Array { return this.readback(true); }
+
+  /**
+   * Start a bucket fill: `field` is RG per document texel (distance from the tap in
+   * px, -1 outside the area; distance to the area's edge), `bbox` the half-open texel
+   * rect around it. Opens one undo step for the whole wash. False while a stroke is
+   * still on the paper.
+   */
+  fillBegin(field: Float32Array, bbox: Rect): boolean {
+    if (this.stroke) return false;
+    if (field.length !== this.dw * this.dh * 2) throw new Error('fill field does not match the document');
+    this.beginStep();   // also drops any previous fill
+    const tex = this.g.texture(this.dw, this.dh, FLOAT_RG, field, this.gl.NEAREST);
+    this.fill = { tex, bbox: { ...bbox } };
+    return true;
+  }
+
+  /**
+   * Deposit the band `from < distance <= to` of the current fill: pigment (if `paint`)
+   * and water, feathered over `soft` px at the area's edge. False once the fill is
+   * gone (undo, clear, another action), in which case the caller should stop.
+   */
+  fillStep(from: number, to: number, o: { strength: number; water: number; soft: number; paint: boolean }): boolean {
+    const f = this.fill;
+    if (!f) return false;
+    const { gl, g } = this;
+    const P = this.params;
+    this.touch(f.bbox);
+    const p = this.programs.fill;
+    p.bind();
+    gl.uniform1i(p.u.uField, g.bindTex(0, f.tex));
+    gl.uniform1i(p.u.uPaper, g.bindTex(1, this.paper.tex[0]));
+    gl.uniform1f(p.u.uSoft, Math.max(0, o.soft));
+    gl.uniform1f(p.u.uGrainThr, 0.5);
+    gl.uniform1f(p.u.uJitter, FILL_JITTER);
+    gl.uniform1f(p.u.uWidth, FILL_WIDTH);
+    gl.enable(gl.BLEND);
+    if (o.paint) {
+      // a steady stroke's density (brush case of stamp(), full reservoir, medium pressure)
+      const conc = 0.15 * Math.exp(P.load * 2.8) * 0.84;
+      const amount = conc * o.strength;
+      const c = this.pigment.coeffs;
+      gl.uniform1i(p.u.uCumulative, 0);
+      gl.uniform1f(p.u.uFrom, from);
+      gl.uniform1f(p.u.uTo, to);
+      gl.uniform1f(p.u.uGrain, 0.12);
+      gl.uniform4f(p.u.uColor0, c[0] * amount, c[1] * amount, c[2] * amount, c[3] * amount);
+      gl.uniform4f(p.u.uColor1, c[4] * amount, c[5] * amount, c[6] * amount, this.pigment.white * amount * 1.6);
+      gl.blendEquation(gl.FUNC_ADD);
+      gl.blendFunc(gl.ONE, gl.ONE);
+      g.draw(this.ink.read, f.bbox);
+    }
+    // the water runs a little ahead of the pigment, as a real wash does
+    const wetAmt = (0.25 + 0.75 * o.water) * 0.9;
+    gl.uniform1i(p.u.uCumulative, 1);
+    gl.uniform1f(p.u.uTo, to + FILL_WATER_LEAD);
+    gl.uniform1f(p.u.uGrain, 0);
+    gl.uniform4f(p.u.uColor0, wetAmt, 0, 0, 0);
+    gl.uniform4f(p.u.uColor1, 0, 0, 0, 0);
+    gl.blendEquation(gl.MAX);
+    g.draw(this.wet.read, f.bbox);
+    gl.blendEquation(gl.FUNC_ADD);
+    gl.disable(gl.BLEND);
+    this.wetPeak = Math.max(this.wetPeak * this.wetDecay(), wetAmt);
+    this.lastWet = performance.now();
+    this.schedule();
+    return true;
+  }
+
+  /** Finish (or stop) the current fill; what has been laid down stays. */
+  fillEnd() { this.dropFill(); }
+
+  private dropFill() {
+    if (!this.fill) return;
+    this.gl.deleteTexture(this.fill.tex);
+    this.fill = null;
   }
 
   /* -------------------------------------------------- scripted strokes (text) */
@@ -318,22 +418,33 @@ export class WatercolorEngine {
 
   clear() {
     this.stroke = null;
+    this.dropFill();
     this.queue = [];
     this.createDocument();
     this.schedule();
   }
 
-  undo() {
-    if (!this.history.canUndo) return;
+  undo() { if (this.history.canUndo) this.travel('undo'); }
+
+  redo() { if (this.history.canRedo) this.travel('redo'); }
+
+  get canUndo() { return this.history.canUndo; }
+  get canRedo() { return this.history.canRedo; }
+
+  /** Step through history in either direction. */
+  private travel(dir: 'undo' | 'redo') {
     this.stroke = null;
+    this.dropFill();
     this.queue = [];
     this.fixTimer = 0;
+    const metaNow = this.currentMeta();
     this.sleep();
     const ink = this.ink, wet = this.wet;
-    const res = this.history.undo([
+    const layers = [
       [[ink.read.views[0], ink.write.views[0]], [ink.read.views[1], ink.write.views[1]], [wet.read.views[0], wet.write.views[0]]],
       [[this.fixed.views[0]], [this.fixed.views[1]]],
-    ]);
+    ];
+    const res = dir === 'undo' ? this.history.undo(layers, metaNow) : this.history.redo(layers, metaNow);
     if (!res) return;
     const meta = res.meta as HistoryMeta;
     const now = performance.now();
@@ -345,23 +456,20 @@ export class WatercolorEngine {
       this.dirty = union(this.dirty, res.rect);
       this.painted = union(this.painted, res.rect);
     }
-    this.callbacks.onHistoryChange?.(this.history.canUndo);
+    this.notifyHistory();
     this.schedule();
   }
 
-  get canUndo() { return this.history.canUndo; }
+  private notifyHistory() { this.callbacks.onHistoryChange?.(this.history.canUndo, this.history.canRedo); }
+
+  private currentMeta(): HistoryMeta {
+    return { wetAgo: performance.now() - this.lastWet, wetPeak: this.wetPeak, active: this.active ? { ...this.active } : null };
+  }
 
   /** Render the document at full resolution and return it as a PNG. */
   async exportPNG(): Promise<Blob> {
-    const { gl, g, dw, dh } = this;
-    const out = g.target(dw, dh, [RGBA8], gl.NEAREST);
-    this.drawDisplay(out, { x: 0, y: 0, w: dw, h: dh }, null);
-    const px = new Uint8Array(dw * dh * 4);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, out.fbo);
-    gl.readPixels(0, 0, dw, dh, gl.RGBA, gl.UNSIGNED_BYTE, px);
-    gl.deleteFramebuffer(out.fbo);
-    out.views.forEach(v => gl.deleteFramebuffer(v));
-    gl.deleteTexture(out.tex[0]);
+    const { dw, dh } = this;
+    const px = this.readback(false);
     const c = document.createElement('canvas');
     c.width = dw; c.height = dh;
     const ctx = c.getContext('2d')!;
@@ -372,6 +480,20 @@ export class WatercolorEngine {
     return new Promise((resolve, reject) => c.toBlob(b => (b ? resolve(b) : reject(new Error('export failed'))), 'image/png'));
   }
 
+  /** The composited document at full resolution as RGBA8 bytes, bottom row first. */
+  private readback(flat: boolean): Uint8Array {
+    const { gl, g, dw, dh } = this;
+    const out = g.target(dw, dh, [RGBA8], gl.NEAREST);
+    this.drawDisplay(out, { x: 0, y: 0, w: dw, h: dh }, null, flat);
+    const px = new Uint8Array(dw * dh * 4);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, out.fbo);
+    gl.readPixels(0, 0, dw, dh, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    gl.deleteFramebuffer(out.fbo);
+    out.views.forEach(v => gl.deleteFramebuffer(v));
+    gl.deleteTexture(out.tex[0]);
+    return px;
+  }
+
   resize() {
     this.fitCanvas();
     this.schedule();
@@ -379,6 +501,7 @@ export class WatercolorEngine {
 
   destroy() {
     cancelAnimationFrame(this.raf);
+    this.dropFill();
     this.disposers.forEach(d => d());
     this.tipTextures.forEach(t => this.gl.deleteTexture(t));
     this.tipTextures.clear();
@@ -815,11 +938,10 @@ export class WatercolorEngine {
   }
 
   private beginStep() {
-    const now = performance.now();
-    const meta: HistoryMeta = { wetAgo: now - this.lastWet, wetPeak: this.wetPeak, active: this.active ? { ...this.active } : null };
-    this.history.begin(meta);
+    this.dropFill();   // a new action ends a running fill; its remaining bands never land in this step
+    this.history.begin(this.currentMeta());
     if (this.active) this.history.protect(0, this.active, this.snapshotLayers());
-    this.callbacks.onHistoryChange?.(true);
+    this.notifyHistory();
   }
 
   private step(dt: number) {
@@ -953,7 +1075,7 @@ export class WatercolorEngine {
 
   /* -------------------------------------------------------------- display */
 
-  private drawDisplay(target: Target | null, view: { x: number; y: number; w: number; h: number }, scissor: Rect | null) {
+  private drawDisplay(target: Target | null, view: { x: number; y: number; w: number; h: number }, scissor: Rect | null, flat = false) {
     const { gl, g } = this;
     const p = this.programs.display;
     p.bind();
@@ -967,6 +1089,7 @@ export class WatercolorEngine {
     gl.uniform2f(p.u.uTexel, 1 / this.dw, 1 / this.dh);
     gl.uniform1f(p.u.uGranulation, this.params.granulation * 0.55);
     gl.uniform1f(p.u.uEdgeDarken, 0.8);
+    gl.uniform1f(p.u.uFlat, flat ? 1 : 0);
     gl.uniform3fv(p.u.uDesk, DESK);
     g.draw(target, scissor, this.canvasSize);
   }

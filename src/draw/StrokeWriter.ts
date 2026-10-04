@@ -1,14 +1,19 @@
 import type { Tool, WatercolorEngine } from '../engine/Engine';
-import type { TextLayout } from './layout';
 
-// Writes laid-out text onto the paper stroke by stroke, in real time, by feeding
-// the engine scripted samples: the brush actually travels the pen paths, so the
+// Draws pen paths (text, shapes) onto the paper stroke by stroke, in real time, by
+// feeding the engine scripted samples: the brush actually travels the paths, so the
 // marks get the same spacing, speed thinning, bleeding and drying as hand strokes.
+
+/** A pen-down ... pen-up run of points. */
+export type Polyline = [number, number][];
+
+/** Pen speed in document heights per second from a 0..1 slider. */
+export const penSpeed = (v: number) => 0.05 * Math.pow(40, v);
 
 export interface WriteOptions {
   tool: Tool;
-  /** Em height, in document heights. */
-  size: number;
+  /** Reference length (em height, shape size) that wobble and jitter scale with, in document heights. */
+  ref: number;
   /** Pen speed along the path, in document heights per second. */
   speed: number;
   /** Base pen pressure 0..1. */
@@ -31,7 +36,7 @@ const STEP = 0.0015;          // sample spacing along the path (doc heights)
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 const smooth = (a: number, b: number, x: number) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
 
-export class TextWriter {
+export class StrokeWriter {
   private raf = 0;
   private runs: Run[] = [];
   private index = 0;
@@ -48,17 +53,20 @@ export class TextWriter {
 
   get busy() { return this.raf !== 0; }
 
-  /** Start writing `layout` with its anchor at document uv (x, y). Cancels any writing in progress. */
-  write(layout: TextLayout, anchor: [number, number], opts: WriteOptions, cb: WriteCallbacks = {}) {
+  /**
+   * Start drawing `strokes`, given in document heights relative to `anchor` (document uv,
+   * y up), in order. Cancels any drawing in progress.
+   */
+  write(strokes: Polyline[], anchor: [number, number], opts: WriteOptions, cb: WriteCallbacks = {}) {
     this.cancel();
-    const { size, wobble } = opts;
+    const { ref, wobble } = opts;
     this.runs = [];
-    for (const pl of layout.strokes) {
-      const pts = pl.map(([x, y]) => [x * size, -y * size] as [number, number]);
+    for (const pl of strokes) {
+      const pts = pl.map(([x, y]) => [x, y] as [number, number]);
       const cum = [0];
       for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
       const len = cum[cum.length - 1];
-      const j = wobble * size * 0.015;
+      const j = wobble * ref * 0.015;
       this.runs.push({ pts, cum, len, ph: [Math.random() * 7, Math.random() * 7], jx: (Math.random() - 0.5) * j, jy: (Math.random() - 0.5) * j });
     }
     if (!this.runs.length) { cb.onDone?.(false); return; }
@@ -97,11 +105,11 @@ export class TextWriter {
     const t = clamp((d - cum[i - 1]) / seg, 0, 1);
     let x = pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * t;
     let y = pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * t;
-    const { wobble, size } = this.opts;
+    const { wobble, ref } = this.opts;
     if (wobble > 0) {
-      // perpendicular tremor: a slow sway plus a faster shiver, in proportion to the letter size
+      // perpendicular tremor: a slow sway plus a faster shiver, in proportion to the reference size
       const tx = (pts[i][0] - pts[i - 1][0]) / seg, ty = (pts[i][1] - pts[i - 1][1]) / seg;
-      const w = wobble * size * 0.035 * (0.6 * Math.sin((d / (size * 0.3)) * Math.PI * 2 + r.ph[0]) + 0.4 * Math.sin((d / (size * 0.08)) * Math.PI * 2 + r.ph[1]));
+      const w = wobble * ref * 0.035 * (0.6 * Math.sin((d / (ref * 0.3)) * Math.PI * 2 + r.ph[0]) + 0.4 * Math.sin((d / (ref * 0.08)) * Math.PI * 2 + r.ph[1]));
       x += -ty * w; y += tx * w;
     }
     const a = this.engine.aspect;

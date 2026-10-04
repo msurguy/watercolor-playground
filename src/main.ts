@@ -6,10 +6,14 @@ import { loadCustomBrushes, makeCustomBrush, saveCustomBrushes, tipFromImage } f
 import { icon } from './ui/icons';
 import { drawStroke, drawThumb, forgetTipImages } from './ui/preview';
 import { createTextTool } from './text/textTool';
+import { createShapeTool } from './shapes/shapeTool';
+import { createFillTool } from './fill/fillTool';
+import { isSvgFile } from './shapes/svgImport';
 import './styles.css';
 
-/** Engine tools plus the text tool, which drives the engine itself. */
-type UiTool = Tool | 'text';
+/** Engine tools plus the text, shape and fill tools, which drive the engine themselves. */
+type UiTool = Tool | 'text' | 'shape' | 'fill';
+type PanelTool = Exclude<UiTool, Tool>;
 
 const TOOLS: { id: UiTool; label: string; key: string; hint: string }[] = [
   { id: 'brush', label: 'Brush', key: 'B', hint: 'Wet paint: pigment and water' },
@@ -17,6 +21,8 @@ const TOOLS: { id: UiTool; label: string; key: string; hint: string }[] = [
   { id: 'pen', label: 'Pen', key: 'P', hint: 'Ink line in the current colour' },
   { id: 'lift', label: 'Lift', key: 'L', hint: 'Blot with a tissue: lifts wet paint' },
   { id: 'text', label: 'Text', key: 'T', hint: 'Write a line of text, drawn slowly with the current brush' },
+  { id: 'shape', label: 'Shape', key: 'G', hint: 'Drag a line, arrow, rectangle, ellipse, polygon or star, drawn slowly with the current brush' },
+  { id: 'fill', label: 'Fill', key: 'K', hint: 'Tap an area to flood it with a wash of the current pigment' },
 ];
 
 const SLIDERS: { key: keyof Params; label: string }[] = [
@@ -71,6 +77,7 @@ root.innerHTML = `
   </div>
   <div class="panel actions">
     ${button('undo', 'undo', 'Undo', 'Undo (⌘Z)')}
+    ${button('redo', 'redo', 'Redo', 'Redo (⇧⌘Z)')}
     ${button('dry', 'dry', 'Dry', 'Dry and fix the painting into the paper (D)')}
     ${button('clear', 'clear', 'Clear', 'Clear the paper')}
     ${button('save', 'save', 'Save', 'Save PNG (S)')}
@@ -100,6 +107,7 @@ const pickBtn = $('.tool.pick');
 const pickThumb = $<HTMLCanvasElement>('.tool.pick .thumb');
 const fileInput = $<HTMLInputElement>('.library input[type="file"]');
 const undoBtn = $<HTMLButtonElement>('[data-action="undo"]');
+const redoBtn = $<HTMLButtonElement>('[data-action="redo"]');
 const clearBtn = $('[data-action="clear"]');
 const settingsBtn = $('[data-action="settings"]');
 const customSwatch = $('.swatch.custom');
@@ -127,7 +135,7 @@ let brush: Brush = builtIn[0];
 
 try {
   engine = new WatercolorEngine(canvas, $('.cursor'), {
-    onHistoryChange: can => { undoBtn.disabled = !can; },
+    onHistoryChange: (canUndo, canRedo) => { undoBtn.disabled = !canUndo; redoBtn.disabled = !canRedo; },
     onStrokeTool: t => { strokeTool = t; renderTools(); },
   });
 } catch (e) {
@@ -137,6 +145,11 @@ try {
 if (import.meta.env.DEV) (window as unknown as { engine: WatercolorEngine }).engine = engine;
 
 const textTool = createTextTool(engine, root, canvas, showToast);
+const shapeTool = createShapeTool(engine, root, canvas, showToast);
+const fillTool = createFillTool(engine, root, canvas, showToast);
+/** Tools with their own panel that drive the engine themselves. */
+const panelTools: Record<PanelTool, { active: boolean; activate(): void; deactivate(): void; stop(): boolean }> = { text: textTool, shape: shapeTool, fill: fillTool };
+const isPanelTool = (t: UiTool): t is PanelTool => t in panelTools;
 
 /* ------------------------------------------------------------ rendering */
 
@@ -207,13 +220,13 @@ function renderBrush() {
 /* -------------------------------------------------------------- actions */
 
 function setTool(t: UiTool) {
-  if (t === 'text' && tool !== 'text') toggleLibrary(false);
+  if (isPanelTool(t) && t !== tool) toggleLibrary(false);
   tool = t;
-  if (t === 'text') {
+  for (const [id, p] of Object.entries(panelTools)) if (p.active && id !== t) p.deactivate();
+  if (isPanelTool(t)) {
     engine.interactive = false;
-    textTool.activate();
+    panelTools[t].activate();
   } else {
-    if (textTool.active) textTool.deactivate();
     engine.interactive = true;
     engine.setTool(t);
   }
@@ -329,6 +342,7 @@ root.addEventListener('click', e => {
   else if (el.dataset.index) choose(PALETTE[Number(el.dataset.index)]);
   else switch (el.dataset.action) {
     case 'undo': engine.undo(); break;
+    case 'redo': engine.redo(); break;
     case 'dry': engine.fix(); break;
     case 'clear': clear(); break;
     case 'save': void save(); break;
@@ -336,7 +350,7 @@ root.addEventListener('click', e => {
     case 'library': toggleLibrary(); break;
     case 'import': fileInput.click(); break;
     case 'reset': setParams(DEFAULT_PARAMS); break;
-    case 'text-close': setTool('brush'); break;
+    case 'text-close': case 'shape-close': case 'fill-close': setTool('brush'); break;
   }
 });
 
@@ -350,14 +364,21 @@ brushList.addEventListener('keydown', e => {
 fileInput.addEventListener('change', () => {
   const f = fileInput.files?.[0];
   fileInput.value = '';
-  if (f) void importTexture(f);
+  if (!f) return;
+  if (isSvgFile(f)) void shapeTool.loadSvg(f).then(ok => { if (ok) setTool('shape'); });
+  else void importTexture(f);
 });
 
 // drop an image anywhere to make a brush from it
 root.addEventListener('dragover', e => { if (e.dataTransfer?.types.includes('Files')) e.preventDefault(); });
 root.addEventListener('drop', e => {
   const f = e.dataTransfer?.files?.[0];
-  if (f && f.type.startsWith('image/')) { e.preventDefault(); void importTexture(f); }
+  if (!f) return;
+  if (isSvgFile(f)) {
+    // an SVG's paths become a shape to trace, not a brush tip
+    e.preventDefault();
+    void shapeTool.loadSvg(f).then(ok => { if (ok) setTool('shape'); });
+  } else if (f.type.startsWith('image/')) { e.preventDefault(); void importTexture(f); }
 });
 
 settings.addEventListener('input', e => {
@@ -376,9 +397,10 @@ window.addEventListener('resize', () => { engine.resize(); renderPreviews(); });
 window.addEventListener('keydown', e => {
   if (e.target instanceof HTMLInputElement && e.target.type !== 'range') return;
   const k = e.key.toLowerCase();
-  if ((e.metaKey || e.ctrlKey) && k === 'z') { e.preventDefault(); engine.undo(); return; }
+  if ((e.metaKey || e.ctrlKey) && k === 'z') { e.preventDefault(); if (e.shiftKey) engine.redo(); else engine.undo(); return; }
+  if ((e.metaKey || e.ctrlKey) && k === 'y') { e.preventDefault(); engine.redo(); return; }
   if (e.metaKey || e.ctrlKey || e.altKey) return;
-  if (k === 'escape') { if (!textTool.stop()) { toggleLibrary(false); toggleSettings(false); } return; }
+  if (k === 'escape') { if (!Object.values(panelTools).some(p => p.stop())) { toggleLibrary(false); toggleSettings(false); } return; }
   const t = TOOLS.find(x => x.key.toLowerCase() === k);
   if (t) setTool(t.id);
   else if (k === '[' || k === ']') setParams({ size: Math.min(1, Math.max(0, params.size + (k === ']' ? 0.05 : -0.05))) });
@@ -398,6 +420,7 @@ window.addEventListener('keydown', e => {
 engine.setPigment(current.pigment);
 engine.setBrush(brush);
 undoBtn.disabled = true;
+redoBtn.disabled = true;
 renderTools();
 renderParams();
 renderPalette();

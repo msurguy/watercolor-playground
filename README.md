@@ -1,6 +1,6 @@
 # Watercolor
 
-A watercolour painting app in plain TypeScript and WebGL2, with no runtime dependencies.
+A watercolour painting app in plain TypeScript and WebGL2, with almost no runtime dependencies.
 It combines ideas from two projects:
 
 - **[inkwash](https://github.com/johnowhitaker/inkwash)**: the GPU fluid simulation (velocity /
@@ -15,10 +15,10 @@ npm run dev      # http://localhost:5173
 npm run build    # static site in dist/
 ```
 
-No runtime dependencies. Vite and TypeScript are only used at build time; the UI is plain DOM,
+Two small runtime dependencies (vpype-js for SVG import, q-floodfill for the bucket fill). Vite and TypeScript are only used at build time; the UI is plain DOM,
 and the simulation, colour science and rendering are TypeScript + GLSL.
 
-## Text
+## Text and shapes
 
 The **Text** tool (T) writes a line of text with whatever brush and pigment are selected. The letters
 come from single-stroke plotter fonts (Hershey, EMS, Cutlings, Relief, Shriinivas, Routed Gothic;
@@ -27,6 +27,24 @@ path rather than an outline. `src/text/TextWriter.ts` walks those paths in real 
 scripted samples, so the strokes get the same spacing, speed thinning, bleeding and drying as hand strokes,
 and one word is one undo step. Options: font, size, speed, pressure, taper at stroke ends, letter spacing,
 hand wobble, anchor (left / centre / right of the tap) and whether to draw with the brush, pen or water.
+
+The **Shape** tool (G) draws lines, arrows, rectangles, ellipses, triangles, regular polygons and stars
+the same way: drag a box on the paper (hold Shift, or turn on Lock, for squares, circles and 45° lines)
+and the outline is drawn stroke by stroke when you let go (`src/shapes/`). The eighth shape, **SVG**,
+traces a file of your own: pick it from the panel or drop an `.svg` anywhere on the page, then drag a
+box to size it (Lock keeps the file's proportions; Rotate turns it). Paths, rects, circles, ellipses,
+lines and polygons are read with [vpype-js](https://github.com/plottertools/vpype-js), merged and sorted
+to shorten pen hops (`src/shapes/svgImport.ts`); text and images in the file are ignored. Undo removes
+a whole word or shape; Redo (⇧⌘Z) brings it back. Undo and redo are symmetric tile swaps in `src/engine/history.ts`.
+
+The **Fill** tool (K) is a paint bucket that behaves like a wash. Tap the paper and the area of similar
+colour around the tap (found with [q-floodfill](https://github.com/pavelkukov/q-floodfill) on a flat
+render of the sheet, without paper grain or wet tint; `src/fill/region.ts`) is covered by pigment and water
+that spread out from the tap in real time rather than appearing at once. A distance field over the area
+(how far the wash has travelled from the tap, and how far it is from the edge) goes to the GPU, and each
+frame the engine lays down the next band of it into the live simulation (`fillStep` in `src/engine/Engine.ts`),
+so the wash blooms, pools and leaves tide lines like a hand-painted one. Options: tolerance, speed, water,
+amount, a soft edge, and whether to lay down paint or clear water. One fill is one undo step.
 
 ## Colour mixing
 
@@ -112,6 +130,7 @@ Drop an image anywhere on the page to import it.
 | **W** Water | clear water: wets paper, pushes paint around |
 | **P** Pen | ink line, feathers into wet areas |
 | **L** Lift | blot with a tissue: lifts wet (unfixed) paint |
+| **K** Fill | paint bucket: a wash spreads from the tap over the area of one colour |
 | **D** Dry | flash-dry and fix paint into the paper, so you can glaze over it |
 | **1–9, 0** | pigments; the last is white gouache |
 | **[ ]** | size |

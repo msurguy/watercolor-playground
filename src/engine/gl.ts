@@ -156,6 +156,21 @@ export class GL {
     if (rect) gl.disable(gl.SCISSOR_TEST);
   }
 
+  /** Upload a CPU image as a texture. The caller owns it (it is not freed by disposeTargets). */
+  texture(w: number, h: number, f: Format, data: ArrayBufferView | null, filter: number): WebGLTexture {
+    const { gl } = this;
+    const t = gl.createTexture()!;
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texImage2D(gl.TEXTURE_2D, 0, f.internal, w, h, 0, f.format, f.type, data);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    return t;
+  }
+
   bindTex(unit: number, tex: WebGLTexture): number {
     const { gl } = this;
     gl.activeTexture(gl.TEXTURE0 + unit);
