@@ -5,13 +5,18 @@ import { PALETTE, customEntry, type PaletteEntry } from './palette';
 import { loadCustomBrushes, makeCustomBrush, saveCustomBrushes, tipFromImage } from './ui/customBrushes';
 import { icon } from './ui/icons';
 import { drawStroke, drawThumb, forgetTipImages } from './ui/preview';
+import { createTextTool } from './text/textTool';
 import './styles.css';
 
-const TOOLS: { id: Tool; label: string; key: string; hint: string }[] = [
+/** Engine tools plus the text tool, which drives the engine itself. */
+type UiTool = Tool | 'text';
+
+const TOOLS: { id: UiTool; label: string; key: string; hint: string }[] = [
   { id: 'brush', label: 'Brush', key: 'B', hint: 'Wet paint: pigment and water' },
   { id: 'water', label: 'Water', key: 'W', hint: 'Clear water: wets paper, moves paint' },
   { id: 'pen', label: 'Pen', key: 'P', hint: 'Ink line in the current colour' },
   { id: 'lift', label: 'Lift', key: 'L', hint: 'Blot with a tissue: lifts wet paint' },
+  { id: 'text', label: 'Text', key: 'T', hint: 'Write a line of text, drawn slowly with the current brush' },
 ];
 
 const SLIDERS: { key: keyof Params; label: string }[] = [
@@ -107,7 +112,7 @@ swatchButtons.forEach((b, i) => { b.style.background = swatchBackground(PALETTE[
 /* ---------------------------------------------------------------- state */
 
 let engine: WatercolorEngine;
-let tool: Tool = 'brush';
+let tool: UiTool = 'brush';
 let strokeTool: Tool | null = null;
 let params: Params = { ...DEFAULT_PARAMS };
 let current: PaletteEntry = PALETTE[5];
@@ -130,6 +135,8 @@ try {
   throw e;
 }
 if (import.meta.env.DEV) (window as unknown as { engine: WatercolorEngine }).engine = engine;
+
+const textTool = createTextTool(engine, root, canvas, showToast);
 
 /* ------------------------------------------------------------ rendering */
 
@@ -199,9 +206,17 @@ function renderBrush() {
 
 /* -------------------------------------------------------------- actions */
 
-function setTool(t: Tool) {
+function setTool(t: UiTool) {
+  if (t === 'text' && tool !== 'text') toggleLibrary(false);
   tool = t;
-  engine.setTool(t);
+  if (t === 'text') {
+    engine.interactive = false;
+    textTool.activate();
+  } else {
+    if (textTool.active) textTool.deactivate();
+    engine.interactive = true;
+    engine.setTool(t);
+  }
   renderTools();
 }
 
@@ -309,7 +324,7 @@ root.addEventListener('click', e => {
   const el = (e.target as Element).closest<HTMLElement>('[data-tool], [data-action], [data-index], [data-brush], [data-remove]');
   if (!el) return;
   if (el.dataset.remove) { removeBrush(el.dataset.remove); return; }
-  if (el.dataset.tool) setTool(el.dataset.tool as Tool);
+  if (el.dataset.tool) setTool(el.dataset.tool as UiTool);
   else if (el.dataset.brush) { const b = allBrushes().find(x => x.id === el.dataset.brush); if (b) chooseBrush(b); }
   else if (el.dataset.index) choose(PALETTE[Number(el.dataset.index)]);
   else switch (el.dataset.action) {
@@ -321,6 +336,7 @@ root.addEventListener('click', e => {
     case 'library': toggleLibrary(); break;
     case 'import': fileInput.click(); break;
     case 'reset': setParams(DEFAULT_PARAMS); break;
+    case 'text-close': setTool('brush'); break;
   }
 });
 
@@ -362,7 +378,7 @@ window.addEventListener('keydown', e => {
   const k = e.key.toLowerCase();
   if ((e.metaKey || e.ctrlKey) && k === 'z') { e.preventDefault(); engine.undo(); return; }
   if (e.metaKey || e.ctrlKey || e.altKey) return;
-  if (k === 'escape') { toggleLibrary(false); toggleSettings(false); return; }
+  if (k === 'escape') { if (!textTool.stop()) { toggleLibrary(false); toggleSettings(false); } return; }
   const t = TOOLS.find(x => x.key.toLowerCase() === k);
   if (t) setTool(t.id);
   else if (k === '[' || k === ']') setParams({ size: Math.min(1, Math.max(0, params.size + (k === ']' ? 0.05 : -0.05))) });

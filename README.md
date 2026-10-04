@@ -18,6 +18,16 @@ npm run build    # static site in dist/
 No runtime dependencies. Vite and TypeScript are only used at build time; the UI is plain DOM,
 and the simulation, colour science and rendering are TypeScript + GLSL.
 
+## Text
+
+The **Text** tool (T) writes a line of text with whatever brush and pigment are selected. The letters
+come from single-stroke plotter fonts (Hershey, EMS, Cutlings, Relief, Shriinivas, Routed Gothic;
+`public/fonts/single-line/`, from [drawingbots.net](https://drawingbots.net)) so every glyph is a pen
+path rather than an outline. `src/text/TextWriter.ts` walks those paths in real time and feeds the engine
+scripted samples, so the strokes get the same spacing, speed thinning, bleeding and drying as hand strokes,
+and one word is one undo step. Options: font, size, speed, pressure, taper at stroke ends, letter spacing,
+hand wobble, anchor (left / centre / right of the tap) and whether to draw with the brush, pen or water.
+
 ## Colour mixing
 
 Pigment is stored as a **spectrum** rather than RGB, so mixes behave like paint:

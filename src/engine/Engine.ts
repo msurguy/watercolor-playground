@@ -49,6 +49,7 @@ interface Stroke {
 }
 
 const DEG = Math.PI / 180;
+const SCRIPT_POINTER = -1;
 
 interface HistoryMeta { wetAgo: number; wetPeak: number; active: Rect | null }
 
@@ -76,6 +77,8 @@ export class WatercolorEngine {
   brush: Brush = buildBrush(BRUSH_PRESETS[0]);
   /** Once an Apple Pencil / stylus is seen, fingers paint with clear water. */
   fingerIsWater = true;
+  /** When false, pointers on the paper are ignored (another tool, e.g. text, is driving it). */
+  interactive = true;
 
   private tipTextures = new Map<string, WebGLTexture>();
   private lastDir: [number, number] = [1, 0];      // direction of the last stroke, for the first dab
@@ -218,6 +221,56 @@ export class WatercolorEngine {
 
   setParams(p: Partial<Params>) { Object.assign(this.params, p); }
 
+  /** Document width / height. Document uv has y up; x spans `aspect` heights. */
+  get aspect() { return this.dw / this.dh; }
+
+  /** Client (CSS px) -> document uv. */
+  clientToDoc(clientX: number, clientY: number): [number, number] { return this.toUv({ clientX, clientY }); }
+
+  /** Document uv -> client (CSS px). */
+  docToClient(x: number, y: number): [number, number] {
+    const r = this.canvas.getBoundingClientRect();
+    return [r.left + (this.view.x + x * this.view.w) / this.dpr, r.top + (this.canvasSize[1] - this.view.y - y * this.view.h) / this.dpr];
+  }
+
+  /* -------------------------------------------------- scripted strokes (text) */
+
+  /** Is a code-driven stroke in progress? */
+  get scripting() { return this.stroke?.pointerId === SCRIPT_POINTER; }
+
+  /**
+   * Start a stroke driven by code rather than a pointer; it runs through the same
+   * pipeline (spacing, speed thinning, dwell, undo). Returns false while another
+   * stroke is still on the paper. `newStep` opens an undo step; pass false to
+   * group several strokes (the letters of a word) into one.
+   */
+  scriptBegin(tool: Tool, x: number, y: number, pressure: number, newStep = true): boolean {
+    if (this.stroke) return false;
+    if (newStep) this.beginStep();
+    this.stroke = {
+      pointerId: SCRIPT_POINTER, pointerType: 'pen', tool, started: false, ending: false,
+      x: 0, y: 0, t: performance.now(), speed: 0, simPressure: 0.45, carry: 0, travelled: 0, moved: false,
+      dx: this.lastDir[0], dy: this.lastDir[1], angle: this.lastAngle, azimuth: null,
+    };
+    this.queue.push({ x, y, p: clamp(pressure, 0.02, 1), t: performance.now(), tx: 0, ty: 0 });
+    this.schedule();
+    return true;
+  }
+
+  /** Feed the scripted stroke a sample; `t` is a performance.now() timestamp. False once the stroke is gone (undo, clear). */
+  scriptMove(x: number, y: number, pressure: number, t: number): boolean {
+    if (!this.scripting) return false;
+    this.queue.push({ x, y, p: clamp(pressure, 0.02, 1), t, tx: 0, ty: 0 });
+    this.schedule();
+    return true;
+  }
+
+  scriptEnd() {
+    if (!this.scripting) return;
+    this.stroke!.ending = true;
+    this.schedule();
+  }
+
   setPigment(p: Pigment) { this.pigment = p; }
 
   setTool(t: Tool) { this.tool = t; this.updateCursor(); }
@@ -350,6 +403,7 @@ export class WatercolorEngine {
 
     on(c, 'pointerdown', e => {
       e.preventDefault();
+      if (!this.interactive) return;
       if (this.stroke) return;                       // one stroke at a time (palm rejection)
       if (e.pointerType === 'pen') this.pencilSeen = true;
       try { c.setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
@@ -413,7 +467,7 @@ export class WatercolorEngine {
   private updateCursor() {
     const el = this.cursor;
     if (!el) return;
-    if (!this.hover.inside || this.hover.type === 'touch') { el.style.opacity = '0'; return; }
+    if (!this.hover.inside || this.hover.type === 'touch' || !this.interactive) { el.style.opacity = '0'; return; }
     const tool = this.stroke?.tool ?? this.tool;
     const r = this.radius(tool, this.stroke ? this.pressureOf(this.stroke, -1) : 0.4, 0);
     const shaped = tool === 'brush' || tool === 'water';
@@ -521,7 +575,7 @@ export class WatercolorEngine {
     if (!s.moved && s.started && !s.ending) this.stamp(s, s.x, s.y, this.pressureOf(s, -1), 0, 0, 0, dt);
     if (s.ending) {
       this.stroke = null;
-      this.callbacks.onStrokeTool?.(null);
+      if (s.pointerId !== SCRIPT_POINTER) this.callbacks.onStrokeTool?.(null);
     }
   }
 
