@@ -13,7 +13,7 @@
 
 [hidden] { display: none !important; }
 
-html, body, #root { margin: 0; height: 100%; overflow: hidden; background: #dbd7cf; }
+html, body, #root, .app { margin: 0; height: 100%; overflow: hidden; background: #dbd7cf; }
 
 body {
   font: 12px/1.3 "Avenir Next", "Helvetica Neue", system-ui, sans-serif;
@@ -90,13 +90,13 @@ button { font: inherit; color: inherit; }
   display: flex; flex-direction: column;
   z-index: 6;   /* above the text panel, which shares its spot */
 }
-.library-head {
+.panel-head {
   display: grid; grid-template-columns: 1fr auto; align-items: start; column-gap: 8px;
   padding: 12px 10px 8px 14px; border-bottom: 1px solid var(--line);
 }
-.library-head > span:first-child { font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink); }
-.library-head .sub { grid-column: 1; font-size: 10px; color: var(--ink-faint); line-height: 1.4; margin-top: 3px; }
-.library-head .icon { grid-column: 2; grid-row: 1 / span 2; }
+.panel-head > span:first-child { font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink); }
+.panel-head .sub { grid-column: 1; font-size: 10px; color: var(--ink-faint); line-height: 1.4; margin-top: 3px; }
+.panel-head .icon { grid-column: 2; grid-row: 1 / span 2; }
 .panel button.icon { padding: 4px; border-radius: 8px; flex-direction: row; }
 
 .brushes {
@@ -151,9 +151,7 @@ button { font: inherit; color: inherit; }
   width: 268px; padding: 12px 14px 12px;
   display: flex; flex-direction: column; gap: 10px;
 }
-.pop-head { display: flex; flex-direction: column; gap: 3px; }
-.pop-head > span:first-child { font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink); }
-.pop-head .sub { font-size: 10px; color: var(--ink-faint); line-height: 1.4; }
+.popover .panel-head { padding: 0; border-bottom: 0; }
 .popover .import { align-self: flex-start; }
 .popover .field { display: flex; flex-direction: column; gap: 5px; }
 .popover .field > span { font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-soft); }
@@ -245,7 +243,7 @@ input[type="range"]::-moz-range-thumb { width: 11px; height: 11px; border-radius
     left: 10px; right: 10px; top: auto; transform: none; width: auto;
     bottom: calc(150px + env(safe-area-inset-bottom)); max-height: 46vh;
   }
-  .library-head .sub, .library-foot .note { display: none; }
+  .panel-head .sub, .library-foot .note { display: none; }
   .brush .stroke { width: 100%; height: 40px; }
   .panel .import span { display: inline; }
   .toast { top: calc(60px + env(safe-area-inset-top)); }
@@ -262,12 +260,12 @@ input[type="range"]::-moz-range-thumb { width: 11px; height: 11px; border-radius
 }
 .ghost path { fill: none; stroke: rgba(42, 42, 51, 0.45); stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 3 3; }
 
-.text {
+.tool-panel {
   left: calc(84px + env(safe-area-inset-left)); top: 50%; transform: translateY(-50%);
   width: 316px; max-height: calc(100vh - 28px);
   display: flex; flex-direction: column;
 }
-.text-body { display: flex; flex-direction: column; gap: 10px; padding: 10px 12px 10px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.tool-body { display: flex; flex-direction: column; gap: 10px; padding: 10px 12px 10px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 .text-input {
   width: 100%; font: 15px/1.3 "Avenir Next", "Helvetica Neue", system-ui, sans-serif; color: var(--ink);
   padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line);
@@ -285,7 +283,7 @@ input[type="range"]::-moz-range-thumb { width: 11px; height: 11px; border-radius
 .fontrow:hover { background: rgba(255, 255, 255, 0.7); }
 .fontrow:focus-visible { outline: 2px solid rgba(42, 42, 51, 0.5); outline-offset: -2px; }
 .fontrow.on { background: rgba(255, 255, 255, 0.85); border-color: rgba(42, 42, 51, 0.5); }
-.fontrow i { display: block; width: 260px; height: 32px; max-width: 100%; background-repeat: no-repeat; background-size: 260px auto; opacity: 0.85; }
+.fontrow i { background-image: var(--atlas); display: block; width: 260px; height: 32px; max-width: 100%; background-repeat: no-repeat; background-size: 260px auto; opacity: 0.85; }
 .fontrow span { display: block; font-size: 12px; line-height: 32px; }
 
 .shapes { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 2px; }
@@ -296,23 +294,23 @@ input[type="range"]::-moz-range-thumb { width: 11px; height: 11px; border-radius
 .panel .shapes button span { font-size: 8px; letter-spacing: 0.06em; white-space: nowrap; }
 .panel .shapes button.on { color: var(--ink); background: rgba(255, 255, 255, 0.85); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06); }
 
-.text-rows { display: flex; flex-direction: column; gap: 7px; }
-.text-rows .slider { grid-template-columns: 58px 1fr; }
+.tool-rows { display: flex; flex-direction: column; gap: 7px; }
+.tool-rows .slider { grid-template-columns: 58px 1fr; }
 .seg { display: flex; gap: 2px; padding: 2px; border-radius: 9px; background: rgba(42, 42, 51, 0.06); }
 .panel .seg button { flex: 1; padding: 5px 4px; border-radius: 7px; font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; }
 .panel .seg button.on { background: rgba(255, 255, 255, 0.85); color: var(--ink); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06); }
 
-.text-foot { display: flex; align-items: center; gap: 8px; min-height: 22px; font-size: 10px; color: var(--ink-soft); }
-.text-foot .status { flex: 1; }
+.tool-foot { display: flex; align-items: center; gap: 8px; min-height: 22px; font-size: 10px; color: var(--ink-soft); }
+.tool-foot .status { flex: 1; }
 .panel .stop { flex-direction: row; gap: 5px; padding: 4px 8px; border: 1px solid var(--line); color: #a0281c; }
-.text-foot .credit { font-size: 10px; color: var(--ink-faint); text-decoration: none; white-space: nowrap; }
-.text-foot .credit:hover { color: var(--ink); }
+.tool-foot .credit { font-size: 10px; color: var(--ink-faint); text-decoration: none; white-space: nowrap; }
+.tool-foot .credit:hover { color: var(--ink); }
 
 @media (max-width: 640px) {
-  .text {
+  .tool-panel {
     left: 10px; right: 10px; top: auto; transform: none; width: auto;
     bottom: calc(150px + env(safe-area-inset-bottom)); max-height: 52vh;
   }
   .fontlist { max-height: 120px; }
-  .text-foot .credit { display: none; }
+  .tool-foot .credit { display: none; }
 }

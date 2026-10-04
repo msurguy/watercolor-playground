@@ -19,8 +19,12 @@ const PATHS: Record<string, string> = {
   chevron: 'M9 6l6 6-6 6',
 };
 
-/** Inline SVG markup for a 20px stroke icon. */
-export function icon(name: string, size = 20): string {
-  return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.5"
-    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${PATHS[name]}"/></svg>`;
+/** A stroke icon from the table above, or any 24×24 path via `d`. */
+export function Icon({ name, d, size = 20 }: { name?: string; d?: string; size?: number }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" stroke-width="1.5"
+      stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d={d ?? PATHS[name!]} />
+    </svg>
+  );
 }

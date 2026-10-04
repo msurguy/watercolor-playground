@@ -1,6 +1,6 @@
 # Watercolor
 
-A watercolour painting app in plain TypeScript and WebGL2, with almost no runtime dependencies.
+A watercolour painting app in TypeScript and WebGL2, with a Preact UI and few runtime dependencies.
 It combines ideas from two projects:
 
 - **[inkwash](https://github.com/johnowhitaker/inkwash)**: the GPU fluid simulation (velocity /
@@ -15,8 +15,23 @@ npm run dev      # http://localhost:5173
 npm run build    # static site in dist/
 ```
 
-Small runtime dependencies: vpype-js for SVG import, q-floodfill for the bucket fill, and heic-to for iPhone HEIC photos. heic-to is about 3 MB, so it is a separate chunk and only downloads when a browser can't decode HEIC itself. Vite and TypeScript are only used at build time; the UI is plain DOM,
-and the simulation, colour science and rendering are TypeScript + GLSL.
+Small runtime dependencies: vpype-js for SVG import, q-floodfill for the bucket fill, and heic-to for iPhone HEIC photos. heic-to is about 3 MB, so it is a separate chunk and only downloads when a browser can't decode HEIC itself. Vite and TypeScript are only used at build time. The UI is Preact with `@preact/signals`; the
+simulation, colour science and rendering are TypeScript + GLSL and know nothing about the UI.
+
+## Code layout
+
+- `src/engine/` the WebGL2 simulation and renderer (`WatercolorEngine`), brushes, spectral colour, undo history.
+- `src/app/` the UI's state and wiring: `store.ts` holds every signal and action (`AppStore`), `registry.ts`
+  lists the tools, `keyboard.ts` the shortcuts, `persisted.ts` localStorage-backed signals.
+- `src/ui/` shared primitives: `Panel`, `PanelHead`, `ToolPanel`, `Seg` (radio group), `Slider` / `SliderRows`
+  (a list of sliders from a spec), `Icon`.
+- `src/components/` the chrome: toolbar, brush library, action bar, settings, palette, paper, overlays.
+- `src/text/`, `src/shapes/`, `src/fill/` panel tools. Each is a store class implementing `PanelTool`
+  (`active`, `busy`, `activate`, `deactivate`, `stop` and an optional `gesture` that `<Paper/>` forwards pointer
+  events to) plus a `*Panel.tsx` component. To add a tool, add a folder like these and one entry in `registry.ts`.
+- `src/reference/`, `src/export/` the reference image and save popovers, same store + panel split.
+
+In development `window.app` (the `AppStore`) and `window.engine` are exposed for scripting.
 
 ## Text and shapes
 

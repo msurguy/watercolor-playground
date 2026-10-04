@@ -1,20 +1,8 @@
+import { signal } from '@preact/signals';
+
 // A dashed outline over the paper showing where a scripted drawing will land.
+// Tools write an SVG path (client-space coordinates); <Ghost/> draws it.
 
-export interface Ghost {
-  /** Show the given SVG path (client-space coordinates). */
-  set(d: string): void;
-  hide(): void;
-}
-
-export function createGhost(root: HTMLElement): Ghost {
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.setAttribute('class', 'ghost');
-  svg.innerHTML = '<path/>';
-  svg.style.display = 'none';
-  root.appendChild(svg);
-  const path = svg.querySelector('path')!;
-  return {
-    set(d) { path.setAttribute('d', d); svg.style.display = ''; },
-    hide() { svg.style.display = 'none'; },
-  };
-}
+export const ghostPath = signal<string | null>(null);
+export const setGhost = (d: string) => { ghostPath.value = d; };
+export const hideGhost = () => { if (ghostPath.peek() !== null) ghostPath.value = null; };

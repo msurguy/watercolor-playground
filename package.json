@@ -10,11 +10,14 @@
     "typecheck": "tsc -b"
   },
   "devDependencies": {
+    "@preact/preset-vite": "^2.10.6",
     "typescript": "^7.0.2",
     "vite": "^8.3.2"
   },
   "dependencies": {
+    "@preact/signals": "^2.11.3",
     "heic-to": "^1.6.5",
+    "preact": "^11.0.0",
     "q-floodfill": "^1.3.1",
     "vpype-js": "^0.1.0"
   }
