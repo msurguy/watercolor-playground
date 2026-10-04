@@ -311,6 +311,10 @@ uniform vec2 uTexel;      // document texel size
 uniform float uGranulation, uEdgeDarken;
 uniform float uFlat;      // 1: ignore the paper's relief, grain and wetness (for region picking)
 uniform vec3 uDesk;
+uniform int uMode;        // 0 screen, 1 export on paper, 2 export transparent, 3 export on white
+uniform sampler2D uRef;   // reference image (screen only), sRGB, y up
+uniform vec4 uRefRect;    // its placement in document uv: xy origin, zw size
+uniform float uRefOpacity;
 
 vec3 toSRGB(vec3 c){
   c = clamp(c, 0.0, 1.0);
@@ -341,17 +345,41 @@ void main(){
   float tr;
 ${displayBasisGLSL()}
 
-  // Paper: warm white, lit relief, faint fibre mottling (linear light).
-  vec3 paperCol = vec3(0.925, 0.905, 0.855) * (0.93 + 0.1 * paper.r) * (0.985 + 0.03 * paper.b);
-  vec3 col = rgb * paperCol;
-
   // White gouache sits on top as an opaque layer, a little patchy on the tooth.
   float cov = 1.0 - exp(-2.2 * iB.a);
   cov = clamp(cov * (1.0 + (paper.g - 0.5) * 0.5), 0.0, 1.0);
-  col = mix(col, vec3(0.96, 0.955, 0.94) * (0.96 + 0.05 * paper.r), cov);
+  vec3 gouache = vec3(0.96, 0.955, 0.94) * (0.96 + 0.05 * paper.r);
+
+  if (uMode == 2){
+    // Transparent: the pigment's transmittance over white, unmixed into colour + alpha
+    // (exact when the image is laid back over white), then the gouache over that.
+    vec3 t = toSRGB(rgb);
+    float a1 = 1.0 - min(min(t.r, t.g), t.b);
+    vec3 c1 = a1 > 1e-4 ? (t - (1.0 - a1)) / a1 : vec3(0.0);
+    vec3 g = toSRGB(gouache);
+    float al = cov + a1 * (1.0 - cov);
+    vec3 c = al > 1e-4 ? (g * cov + c1 * a1 * (1.0 - cov)) / al : vec3(0.0);
+    o = vec4(c, al);   // straight alpha, as ImageData wants it
+    return;
+  }
+
+  // Paper: warm white, lit relief, faint fibre mottling (linear light).
+  vec3 paperCol = uMode == 3 ? vec3(1.0)
+    : vec3(0.925, 0.905, 0.855) * (0.93 + 0.1 * paper.r) * (0.985 + 0.03 * paper.b);
+  // On screen, a reference image shows through the paper, under the paint.
+  if (uMode == 0 && uRefOpacity > 0.0){
+    vec2 ruv = (uv - uRefRect.xy) / uRefRect.zw;
+    if (ruv.x >= 0.0 && ruv.y >= 0.0 && ruv.x <= 1.0 && ruv.y <= 1.0){
+      vec4 r = texture(uRef, ruv);
+      vec3 lin = pow(r.rgb, vec3(2.2));
+      paperCol = mix(paperCol, lin, r.a * uRefOpacity);
+    }
+  }
+  vec3 col = rgb * paperCol;
+  col = mix(col, uMode == 3 ? vec3(1.0) : gouache, cov);
 
   // Wet paper reads darker and slightly cool.
-  float ws = smoothstep(0.02, 0.7, texture(uWet, uv).x) * (1.0 - uFlat);
+  float ws = uMode == 3 ? 0.0 : smoothstep(0.02, 0.7, texture(uWet, uv).x) * (1.0 - uFlat);
   col *= vec3(1.0) - ws * vec3(0.12, 0.11, 0.08);
 
   o = vec4(toSRGB(col), 1.0);

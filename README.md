@@ -15,7 +15,7 @@ npm run dev      # http://localhost:5173
 npm run build    # static site in dist/
 ```
 
-Two small runtime dependencies (vpype-js for SVG import, q-floodfill for the bucket fill). Vite and TypeScript are only used at build time; the UI is plain DOM,
+Small runtime dependencies: vpype-js for SVG import, q-floodfill for the bucket fill, and heic-to for iPhone HEIC photos. heic-to is about 3 MB, so it is a separate chunk and only downloads when a browser can't decode HEIC itself. Vite and TypeScript are only used at build time; the UI is plain DOM,
 and the simulation, colour science and rendering are TypeScript + GLSL.
 
 ## Text and shapes
@@ -119,7 +119,22 @@ reaches into the valleys.
 
 **Import texture…** in the library turns any PNG/JPG into a brush tip (dark marks on white are
 inverted automatically; alpha is respected). Imported brushes are kept in `localStorage`.
-Drop an image anywhere on the page to import it.
+Drop an image anywhere on the page and choose **Make a brush** or **Use as reference**.
+
+## Reference image and saving
+
+**Ref** puts a photo or sketch (PNG, JPG, WebP, or an iPhone HEIC) under the paint to work from.
+Paint glazes over it like a tracing. Opacity is adjustable, and **R** shows or hides it.
+**Move** brings up a frame: drag it to move the image, drag a corner, scroll or pinch to scale it, and press Esc
+when done (painting pauses while the frame is up). **Fit** puts it back. The reference lives only
+on screen (`src/reference/`) and is never part of a saved image.
+
+**Save** opens the export options:
+- Background: **Transparent** (default; unpainted paper is see-through, with paint as colour + alpha that
+  looks the same when laid over white), **Paper** (the textured paper, as on screen), or **White**.
+- Format: PNG, JPEG or WebP. JPEG and WebP have a quality setting, and JPEG has no transparency.
+
+**S** saves immediately with the last settings.
 
 ## Using it
 
@@ -135,7 +150,8 @@ Drop an image anywhere on the page to import it.
 | **1–9, 0** | pigments; the last is white gouache |
 | **[ ]** | size |
 | **⌘Z** | undo |
-| **S** / **F** | save PNG / fullscreen |
+| **R** | show / hide the reference image |
+| **S** / **F** | save with the last export settings / fullscreen |
 
 Stylus: pressure shapes the stroke. The barrel button switches to water and the eraser end
 lifts. On iPad, once an Apple Pencil has been used, your finger becomes the water brush.

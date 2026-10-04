@@ -9,6 +9,9 @@ import { createTextTool } from './text/textTool';
 import { createShapeTool } from './shapes/shapeTool';
 import { createFillTool } from './fill/fillTool';
 import { isSvgFile } from './shapes/svgImport';
+import { createReference } from './reference/referenceTool';
+import { isRasterFile } from './reference/decode';
+import { createExportPanel } from './export/exportPanel';
 import './styles.css';
 
 /** Engine tools plus the text, shape and fill tools, which drive the engine themselves. */
@@ -73,14 +76,15 @@ root.innerHTML = `
       <button class="import" data-action="import" title="Use an image as a brush tip: dark marks on white, or white on transparent">${icon('plus', 16)}<span>Import texture…</span></button>
       <span class="note">PNG or JPG. Light background is inverted automatically.</span>
     </div>
-    <input type="file" accept="image/*" hidden>
+    <input type="file" accept="image/*,.heic,.heif" hidden>
   </div>
   <div class="panel actions">
     ${button('undo', 'undo', 'Undo', 'Undo (⌘Z)')}
     ${button('redo', 'redo', 'Redo', 'Redo (⇧⌘Z)')}
     ${button('dry', 'dry', 'Dry', 'Dry and fix the painting into the paper (D)')}
     ${button('clear', 'clear', 'Clear', 'Clear the paper')}
-    ${button('save', 'save', 'Save', 'Save PNG (S)')}
+    ${button('reference', 'image', 'Ref', 'Reference image under the paint (R to show / hide)')}
+    ${button('save', 'save', 'Save', 'Save image (S saves with the last settings)')}
     ${button('settings', 'sliders', 'Settings', 'Brush &amp; water settings')}
   </div>
   <div class="panel settings" hidden>
@@ -93,6 +97,10 @@ root.innerHTML = `
       <label class="swatch custom" title="Custom pigment"><input type="color" value="#7a3b8f"></label>
     </div>
     <div class="well" title="Spectral mix of your last two pigments"><span class="name"></span><span class="mix"></span></div>
+  </div>
+  <div class="panel drop-choice" hidden role="dialog" aria-label="Use the dropped image">
+    <button data-drop="reference">${icon('image', 16)}<span>Use as reference</span></button>
+    <button data-drop="brush">${icon('brush', 16)}<span>Make a brush</span></button>
   </div>
   <div class="toast" hidden></div>`;
 
@@ -109,7 +117,7 @@ const fileInput = $<HTMLInputElement>('.library input[type="file"]');
 const undoBtn = $<HTMLButtonElement>('[data-action="undo"]');
 const redoBtn = $<HTMLButtonElement>('[data-action="redo"]');
 const clearBtn = $('[data-action="clear"]');
-const settingsBtn = $('[data-action="settings"]');
+const dropChoice = $('.drop-choice');
 const customSwatch = $('.swatch.custom');
 const customInput = $<HTMLInputElement>('.swatch.custom input');
 const toast = $('.toast');
@@ -147,6 +155,10 @@ if (import.meta.env.DEV) (window as unknown as { engine: WatercolorEngine }).eng
 const textTool = createTextTool(engine, root, canvas, showToast);
 const shapeTool = createShapeTool(engine, root, canvas, showToast);
 const fillTool = createFillTool(engine, root, canvas, showToast);
+const reference = createReference(engine, root, showToast, on => { engine.interactive = !on && !isPanelTool(tool); });
+const exporter = createExportPanel(engine, root, showToast);
+/** Small panels that drop down under the action bar, one at a time, keyed by their button's action. */
+const popovers: Record<string, HTMLElement> = { settings, reference: reference.panel, save: exporter.panel };
 /** Tools with their own panel that drive the engine themselves. */
 const panelTools: Record<PanelTool, { active: boolean; activate(): void; deactivate(): void; stop(): boolean }> = { text: textTool, shape: shapeTool, fill: fillTool };
 const isPanelTool = (t: UiTool): t is PanelTool => t in panelTools;
@@ -221,6 +233,7 @@ function renderBrush() {
 
 function setTool(t: UiTool) {
   if (isPanelTool(t) && t !== tool) toggleLibrary(false);
+  reference.stopAdjust();
   tool = t;
   for (const [id, p] of Object.entries(panelTools)) if (p.active && id !== t) p.deactivate();
   if (isPanelTool(t)) {
@@ -296,15 +309,6 @@ function removeBrush(id: string) {
   buildLibrary();
 }
 
-async function save() {
-  const blob = await engine.exportPNG();
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `watercolor-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.png`;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-}
-
 function setConfirmClear(on: boolean) {
   clearTimeout(confirmTimer);
   clearBtn.classList.toggle('danger', on);
@@ -315,14 +319,36 @@ function setConfirmClear(on: boolean) {
 function clear() {
   if (!clearBtn.classList.contains('danger')) { setConfirmClear(true); return; }
   engine.clear();
+  reference.layout();
   setConfirmClear(false);
 }
 
-function toggleSettings(force?: boolean) {
-  settings.hidden = force === undefined ? !settings.hidden : !force;
-  settingsBtn.classList.toggle('on', !settings.hidden);
-  settingsBtn.setAttribute('aria-expanded', String(!settings.hidden));
+/** Open or close one popover (toggling when `force` is omitted); opening one closes the rest. */
+function togglePopover(name: string, force?: boolean) {
+  const open = force ?? popovers[name].hidden;
+  for (const [n, el] of Object.entries(popovers)) {
+    el.hidden = !(open && n === name);
+    const b = $(`.actions [data-action="${n}"]`);
+    b.classList.toggle('on', !el.hidden);
+    b.setAttribute('aria-expanded', String(!el.hidden));
+  }
 }
+
+const closePopovers = () => { for (const n of Object.keys(popovers)) togglePopover(n, false); };
+
+/* ------------------------------------------------- dropping an image file */
+
+let dropped: File | null = null;
+
+function offerDrop(f: File, x: number, y: number) {
+  dropped = f;
+  dropChoice.hidden = false;
+  const r = dropChoice.getBoundingClientRect();
+  dropChoice.style.left = `${Math.max(8, Math.min(innerWidth - r.width - 8, x - r.width / 2))}px`;
+  dropChoice.style.top = `${Math.max(8, Math.min(innerHeight - r.height - 8, y - r.height / 2))}px`;
+}
+
+function closeDrop() { dropped = null; dropChoice.hidden = true; }
 
 function toggleLibrary(force?: boolean) {
   library.hidden = force === undefined ? !library.hidden : !force;
@@ -345,8 +371,9 @@ root.addEventListener('click', e => {
     case 'redo': engine.redo(); break;
     case 'dry': engine.fix(); break;
     case 'clear': clear(); break;
-    case 'save': void save(); break;
-    case 'settings': toggleSettings(); break;
+    case 'save': togglePopover('save'); break;
+    case 'reference': togglePopover('reference'); break;
+    case 'settings': togglePopover('settings'); break;
     case 'library': toggleLibrary(); break;
     case 'import': fileInput.click(); break;
     case 'reset': setParams(DEFAULT_PARAMS); break;
@@ -361,6 +388,16 @@ brushList.addEventListener('keydown', e => {
   if (b) { e.preventDefault(); chooseBrush(b); }
 });
 
+dropChoice.addEventListener('click', e => {
+  const k = (e.target as Element).closest<HTMLElement>('[data-drop]')?.dataset.drop;
+  const f = dropped;
+  if (!k || !f) return;
+  closeDrop();
+  if (k === 'reference') void reference.load(f);
+  else void importTexture(f);
+});
+window.addEventListener('pointerdown', e => { if (!dropChoice.hidden && !dropChoice.contains(e.target as Node)) closeDrop(); });
+
 fileInput.addEventListener('change', () => {
   const f = fileInput.files?.[0];
   fileInput.value = '';
@@ -369,7 +406,7 @@ fileInput.addEventListener('change', () => {
   else void importTexture(f);
 });
 
-// drop an image anywhere to make a brush from it
+// drop an image anywhere to use it as the reference or make a brush from it
 root.addEventListener('dragover', e => { if (e.dataTransfer?.types.includes('Files')) e.preventDefault(); });
 root.addEventListener('drop', e => {
   const f = e.dataTransfer?.files?.[0];
@@ -378,7 +415,7 @@ root.addEventListener('drop', e => {
     // an SVG's paths become a shape to trace, not a brush tip
     e.preventDefault();
     void shapeTool.loadSvg(f).then(ok => { if (ok) setTool('shape'); });
-  } else if (f.type.startsWith('image/')) { e.preventDefault(); void importTexture(f); }
+  } else if (isRasterFile(f)) { e.preventDefault(); offerDrop(f, e.clientX, e.clientY); }
 });
 
 settings.addEventListener('input', e => {
@@ -392,7 +429,7 @@ canvas.addEventListener('pointerdown', () => $('.hint').classList.add('gone'), {
 // painting dismisses the library so it never covers the work for long
 canvas.addEventListener('pointerdown', () => { if (!library.hidden) toggleLibrary(false); });
 
-window.addEventListener('resize', () => { engine.resize(); renderPreviews(); });
+window.addEventListener('resize', () => { engine.resize(); reference.layout(); renderPreviews(); });
 
 window.addEventListener('keydown', e => {
   if (e.target instanceof HTMLInputElement && e.target.type !== 'range') return;
@@ -400,14 +437,20 @@ window.addEventListener('keydown', e => {
   if ((e.metaKey || e.ctrlKey) && k === 'z') { e.preventDefault(); if (e.shiftKey) engine.redo(); else engine.undo(); return; }
   if ((e.metaKey || e.ctrlKey) && k === 'y') { e.preventDefault(); engine.redo(); return; }
   if (e.metaKey || e.ctrlKey || e.altKey) return;
-  if (k === 'escape') { if (!Object.values(panelTools).some(p => p.stop())) { toggleLibrary(false); toggleSettings(false); } return; }
+  if (k === 'escape') {
+    if (!dropChoice.hidden) closeDrop();
+    else if (reference.stopAdjust()) { /* done moving the reference */ }
+    else if (!Object.values(panelTools).some(p => p.stop())) { toggleLibrary(false); closePopovers(); }
+    return;
+  }
   const t = TOOLS.find(x => x.key.toLowerCase() === k);
   if (t) setTool(t.id);
   else if (k === '[' || k === ']') setParams({ size: Math.min(1, Math.max(0, params.size + (k === ']' ? 0.05 : -0.05))) });
   else if (k === ',' || k === '<') cycleBrush(-1);
   else if (k === '.' || k === '>') cycleBrush(1);
   else if (k === 'd') engine.fix();
-  else if (k === 's') void save();
+  else if (k === 's') void exporter.save();
+  else if (k === 'r') reference.toggleVisible();
   else if (k === 'f') {
     if (document.fullscreenElement) void document.exitFullscreen();
     else void document.documentElement.requestFullscreen?.();

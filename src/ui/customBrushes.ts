@@ -1,4 +1,5 @@
 import { buildBrush, CUSTOM_BASE, TIP_SIZE, type Brush } from '../engine/brushes';
+import { decodeImage } from '../reference/decode';
 
 const KEY = 'watercolor.customBrushes';
 
@@ -6,7 +7,7 @@ interface Stored { id: string; name: string; png: string }
 
 /** Read an image file into tip data: luminance (inverted on a light background) times alpha. */
 export async function tipFromImage(file: Blob): Promise<Uint8Array> {
-  const bmp = await createImageBitmap(file);
+  const bmp = await decodeImage(file);
   const n = TIP_SIZE;
   const c = document.createElement('canvas');
   c.width = n; c.height = n;

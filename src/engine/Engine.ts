@@ -28,6 +28,17 @@ export interface EngineCallbacks {
   onStrokeTool?(tool: Tool | null): void;
 }
 
+export type ExportFormat = 'png' | 'jpeg' | 'webp';
+export type ExportBackground = 'transparent' | 'paper' | 'white';
+export interface ExportOptions { format: ExportFormat; background: ExportBackground; quality?: number }
+
+/** Placement of the reference image in document uv (y up): origin and size. */
+export interface RefRect { x: number; y: number; w: number; h: number }
+
+/** How the display shader composites: on screen (with the reference) or for an export. */
+const MODE = { screen: 0, paper: 1, transparent: 2, white: 3 } as const;
+const MAX_REF_SIDE = 4096;
+
 interface Sample { x: number; y: number; p: number; t: number; tx: number; ty: number }
 
 interface Stroke {
@@ -85,6 +96,11 @@ export class WatercolorEngine {
   interactive = true;
 
   private tipTextures = new Map<string, WebGLTexture>();
+  // reference image: shown under the paint on screen only, never exported
+  private ref: { tex: WebGLTexture; aspect: number } | null = null;
+  private refRect: RefRect = { x: 0, y: 0, w: 1, h: 1 };
+  private refOpacity = 0.5;
+  private refVisible = true;
   private lastDir: [number, number] = [1, 0];      // direction of the last stroke, for the first dab
   private lastAngle = 0;                            // tip angle shown by the hover cursor
 
@@ -190,7 +206,10 @@ export class WatercolorEngine {
   private createDocument() {
     const [cw, ch] = this.canvasSize;
     const s = Math.min(1, MAX_DOC_LONG / Math.max(cw, ch), MAX_DOC_SHORT / Math.min(cw, ch));
+    const oldAspect = this.aspect;
     this.dw = Math.round(cw * s); this.dh = Math.round(ch * s);
+    // a reference placed on paper of another shape would be stretched; fit it afresh
+    if (this.ref && Math.abs(this.aspect - oldAspect) > 1e-3) this.fitReference();
     const { gl, g } = this;
     g.disposeTargets();
     const ar = this.dw / this.dh;
@@ -381,6 +400,65 @@ export class WatercolorEngine {
     this.updateCursor();
   }
 
+  /* ------------------------------------------------------- reference image */
+
+  get hasReference() { return this.ref !== null; }
+
+  /** Width / height of the reference image, or 0 without one. */
+  get referenceAspect() { return this.ref?.aspect ?? 0; }
+
+  /**
+   * Show `img` under the paint (or remove it with null), fitted to the paper.
+   * It survives clearing the paper and is never part of an export.
+   */
+  setReference(img: ImageBitmap | HTMLCanvasElement | null) {
+    const { gl } = this;
+    if (this.ref) { gl.deleteTexture(this.ref.tex); this.ref = null; }
+    if (img) {
+      const max = Math.min(MAX_REF_SIDE, gl.getParameter(gl.MAX_TEXTURE_SIZE) as number);
+      let src: TexImageSource = img;
+      const s = Math.min(1, max / Math.max(img.width, img.height));
+      if (s < 1) {
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(img.width * s)); c.height = Math.max(1, Math.round(img.height * s));
+        c.getContext('2d')!.drawImage(img, 0, 0, c.width, c.height);
+        src = c;
+      }
+      const tex = gl.createTexture()!;
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, src);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      this.ref = { tex, aspect: img.width / img.height };
+      this.fitReference();
+    }
+    this.redraw();
+  }
+
+  /** The reference placed as large as fits, centred on the paper. */
+  fitReference() {
+    if (!this.ref) return;
+    const k = this.ref.aspect / this.aspect;   // the image's width / height in uv units
+    const w = k > 1 ? 1 : k, h = k > 1 ? 1 / k : 1;
+    this.referenceRect = { x: (1 - w) / 2, y: (1 - h) / 2, w, h };
+  }
+
+  get referenceRect(): RefRect { return { ...this.refRect }; }
+  set referenceRect(r: RefRect) { this.refRect = { ...r }; this.redraw(); }
+
+  get referenceOpacity() { return this.refOpacity; }
+  set referenceOpacity(v: number) { this.refOpacity = clamp(v, 0, 1); this.redraw(); }
+
+  get referenceVisible() { return this.refVisible; }
+  set referenceVisible(v: boolean) { this.refVisible = v; this.redraw(); }
+
+  private redraw() { this.dirtyAll = true; this.schedule(); }
+
   /** Drop the GPU copy of a brush tip (after a custom brush is removed or replaced). */
   forgetBrush(id: string) {
     const t = this.tipTextures.get(id);
@@ -466,10 +544,14 @@ export class WatercolorEngine {
     return { wetAgo: performance.now() - this.lastWet, wetPeak: this.wetPeak, active: this.active ? { ...this.active } : null };
   }
 
-  /** Render the document at full resolution and return it as a PNG. */
-  async exportPNG(): Promise<Blob> {
+  /**
+   * Render the document at full resolution as an image file. The reference image is
+   * never included. JPEG has no alpha, so a transparent JPEG is put on white.
+   */
+  async exportImage(o: ExportOptions): Promise<Blob> {
     const { dw, dh } = this;
-    const px = this.readback(false);
+    const bg = o.format === 'jpeg' && o.background === 'transparent' ? 'white' : o.background;
+    const px = this.readback(false, MODE[bg]);
     const c = document.createElement('canvas');
     c.width = dw; c.height = dh;
     const ctx = c.getContext('2d')!;
@@ -477,14 +559,19 @@ export class WatercolorEngine {
     const row = dw * 4;
     for (let y = 0; y < dh; y++) img.data.set(px.subarray((dh - 1 - y) * row, (dh - y) * row), y * row);
     ctx.putImageData(img, 0, 0);
-    return new Promise((resolve, reject) => c.toBlob(b => (b ? resolve(b) : reject(new Error('export failed'))), 'image/png'));
+    const type = `image/${o.format}`;
+    return new Promise((resolve, reject) => c.toBlob(b => {
+      if (!b) reject(new Error('export failed'));
+      else if (b.type !== type) reject(new Error(`This browser cannot save ${o.format.toUpperCase()}`));
+      else resolve(b);
+    }, type, o.quality));
   }
 
   /** The composited document at full resolution as RGBA8 bytes, bottom row first. */
-  private readback(flat: boolean): Uint8Array {
+  private readback(flat: boolean, mode: number = MODE.paper): Uint8Array {
     const { gl, g, dw, dh } = this;
     const out = g.target(dw, dh, [RGBA8], gl.NEAREST);
-    this.drawDisplay(out, { x: 0, y: 0, w: dw, h: dh }, null, flat);
+    this.drawDisplay(out, { x: 0, y: 0, w: dw, h: dh }, null, flat, mode);
     const px = new Uint8Array(dw * dh * 4);
     gl.bindFramebuffer(gl.FRAMEBUFFER, out.fbo);
     gl.readPixels(0, 0, dw, dh, gl.RGBA, gl.UNSIGNED_BYTE, px);
@@ -505,6 +592,8 @@ export class WatercolorEngine {
     this.disposers.forEach(d => d());
     this.tipTextures.forEach(t => this.gl.deleteTexture(t));
     this.tipTextures.clear();
+    if (this.ref) this.gl.deleteTexture(this.ref.tex);
+    this.ref = null;
     this.g.disposeTargets();
   }
 
@@ -1075,7 +1164,7 @@ export class WatercolorEngine {
 
   /* -------------------------------------------------------------- display */
 
-  private drawDisplay(target: Target | null, view: { x: number; y: number; w: number; h: number }, scissor: Rect | null, flat = false) {
+  private drawDisplay(target: Target | null, view: { x: number; y: number; w: number; h: number }, scissor: Rect | null, flat = false, mode: number = MODE.screen) {
     const { gl, g } = this;
     const p = this.programs.display;
     p.bind();
@@ -1091,6 +1180,13 @@ export class WatercolorEngine {
     gl.uniform1f(p.u.uEdgeDarken, 0.8);
     gl.uniform1f(p.u.uFlat, flat ? 1 : 0);
     gl.uniform3fv(p.u.uDesk, DESK);
+    gl.uniform1i(p.u.uMode, mode);
+    const ref = mode === MODE.screen && !flat && this.refVisible ? this.ref : null;
+    gl.uniform1f(p.u.uRefOpacity, ref ? this.refOpacity : 0);
+    // the sampler needs a texture bound either way; the paper stands in when there is none
+    gl.uniform1i(p.u.uRef, g.bindTex(6, ref ? ref.tex : this.paper.tex[0]));
+    const r = this.refRect;
+    gl.uniform4f(p.u.uRefRect, r.x, r.y, r.w, r.h);
     g.draw(target, scissor, this.canvasSize);
   }
 
