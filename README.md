@@ -1,172 +1,155 @@
 # Watercolor
 
-A watercolour painting app in TypeScript and WebGL2, with a Preact UI and few runtime dependencies.
-It combines ideas from two projects:
+A watercolour painting app that runs in your browser. Paint flows only where the paper is wet, colours mix the way real pigments do, and washes dry with soft blooms and dark tide lines.
 
-- **[inkwash](https://github.com/johnowhitaker/inkwash)**: the GPU fluid simulation (velocity /
-  pressure / vorticity grid), a wetness field that confines flow to wet paper, pigment that only
-  moves where wet, and "fixing" pigment into the paper. Reference copy in `../_reference/inkwash-main`.
-- **water-brush** (the parent folder): the spectral Kubelka-Munk data from spectral.js
-  (`src/filters/ColorAdder.js`) and the watercolour look (blotchy edges, tide lines, granulation).
+**[Open the app →](https://msurguy.github.io/watercolor-playground/)** Nothing to install. Works with a mouse, a touchscreen or a stylus such as an Apple Pencil.
+
+![A landscape painted in the app: a blue sky, a pink and violet horizon, green and yellow fields and small trees](docs/screenshots/landscape.webp)
+
+## What you can do
+
+### Mix colours like real paint
+
+Pigment is stored as a light spectrum rather than as RGB, so mixes work like paint does. Yellow and blue make green, rose and ultramarine make violet, and burnt sienna and ultramarine make a soft grey. Put a colour down while the paper is still wet and it bleeds into its neighbours. Paint it on dry paper and you get a hard edge.
+
+![Three pairs of overlapping colour circles, labelled yellow + blue, rose + ultramarine and sienna + ultramarine, mixing where they overlap](docs/screenshots/colour-mixing.webp)
+
+### Choose from 14 brushes
+
+Rounds, flats, a rigger, a hake, a mop, a fan, a dry brush, a sponge, spatter, stipple, sumi and more. Each brush has its own tip and its own way of handling water. A dry brush only touches the bumps of the paper, so its strokes break up. Flats and daggers follow the tilt of an Apple Pencil.
+
+You can also turn any PNG or JPG into a brush: choose **Import texture…** in the brush library, or drop an image onto the page.
+
+![The brush library open next to sample strokes of all 14 brushes in different colours](docs/screenshots/brushes.webp)
+
+### Write text, draw shapes, fill areas
+
+- **Text (T).** Type a line and tap the paper. The brush writes each letter stroke by stroke, using single-line plotter fonts.
+- **Shape (G).** Drag to draw a line, an arrow, a rectangle, an ellipse, a triangle, a polygon or a star. You can also trace your own SVG file.
+- **Fill (K).** Tap an area and a wash spreads out from that spot to fill it, pooling and drying like a hand-painted wash.
+
+![Hand-lettered "Hello, watercolour" above a pink rectangle, a blue ellipse and a yellow star, each outlined in ink and filled with a wash, with the Text panel open](docs/screenshots/text-shapes-fill.webp)
+
+### And more
+
+- **Water, Pen, Lift and Dry.** Wet the paper and push paint around with clear water. Draw ink lines that feather into wet areas. Blot wet paint off with a tissue. Flash-dry the sheet so you can glaze new colour over it.
+- **Paper.** Ten paper types, including cold press, hot press, rough, khadi, washi and kraft, at sizes from postcard to 2400 × 1600.
+- **Reference image.** Put a photo or a sketch under the paint and trace over it. iPhone HEIC photos work too.
+- **History.** Undo and redo any step, or jump straight to an earlier step in the History panel.
+- **Save.** Export a PNG, JPEG or WebP with a transparent, white or paper background. Save a project file (`.wcp`) to keep the wet paint and carry on later.
+- **Hand painting.** Turn on **Settings → Hand** and paint in front of your webcam. Pinch to paint, and rest your hand on a button to press it.
+
+## How to paint
+
+1. Pick a pigment from the palette at the bottom and a brush from the top of the left toolbar.
+2. Paint with the **Brush** (B). While the paint is wet, add a second colour next to it and watch them mix.
+3. Use **Water** (W) to soften edges or move wet paint around.
+4. Press **Dry** (D) when you want to glaze over a layer without disturbing it.
+5. Press **Save** (S) to download your painting.
+
+With a stylus, pressure changes the stroke. The barrel button switches to water and the eraser end lifts paint. On an iPad, once you have used an Apple Pencil, your finger becomes the water brush.
+
+### Keyboard shortcuts
+
+| Key | Action |
+| --- | --- |
+| **B** / **W** / **P** / **L** | Brush / Water / Pen / Lift |
+| **T** / **G** / **K** | Text / Shape / Fill |
+| **D** | Dry the paper |
+| **1–9**, **0** | Choose a pigment (**0** is white gouache) |
+| **,** / **.** | Previous / next brush |
+| **[** / **]** | Smaller / larger brush |
+| **⌘Z** / **⇧⌘Z** | Undo / redo |
+| **+** / **−**, **⇧1** | Zoom in / out, fit to screen |
+| **R** | Show or hide the reference image |
+| **S** | Save the image with your last export settings |
+| **⌘S** / **⌘O** | Save / open a project file |
+| **F** | Fullscreen |
+| **Esc** | Close a panel or stop drawing |
+
+On Windows and Linux, use Ctrl instead of ⌘.
+
+## Run it yourself
+
+You need [Node.js](https://nodejs.org/) 20 or newer.
 
 ```bash
+git clone https://github.com/msurguy/watercolor-playground.git
+cd watercolor-playground
 npm install
-npm run dev      # http://localhost:5173
-npm run build    # static site in dist/
+npm run dev      # opens at http://localhost:5173
+npm run build    # builds a static site into dist/
 ```
 
-Small runtime dependencies: vpype-js for SVG import, q-floodfill for the bucket fill, and heic-to for iPhone HEIC photos. heic-to is about 3 MB, so it is a separate chunk and only downloads when a browser can't decode HEIC itself. Vite and TypeScript are only used at build time. The UI is Preact with `@preact/signals`; the
-simulation, colour science and rendering are TypeScript + GLSL and know nothing about the UI.
+Every push to `main` deploys to GitHub Pages through [.github/workflows/deploy.yml](.github/workflows/deploy.yml).
 
-## Code layout
+## How it works
 
-- `src/engine/` the WebGL2 simulation and renderer (`WatercolorEngine`), brushes, spectral colour, undo history.
-- `src/app/` the UI's state and wiring: `store.ts` holds every signal and action (`AppStore`), `registry.ts`
-  lists the tools, `keyboard.ts` the shortcuts, `persisted.ts` localStorage-backed signals.
-- `src/ui/` shared primitives: `Panel`, `PanelHead`, `ToolPanel`, `Seg` (radio group), `Slider` / `SliderRows`
-  (a list of sliders from a spec), `Icon`.
-- `src/components/` the chrome: toolbar, brush library, action bar, settings, palette, paper, overlays.
-- `src/text/`, `src/shapes/`, `src/fill/` panel tools. Each is a store class implementing `PanelTool`
-  (`active`, `busy`, `activate`, `deactivate`, `stop` and an optional `gesture` that `<Paper/>` forwards pointer
-  events to) plus a `*Panel.tsx` component. To add a tool, add a folder like these and one entry in `registry.ts`.
-- `src/reference/`, `src/export/` the reference image and save popovers, same store + panel split.
+The app is TypeScript and WebGL2, with a [Preact](https://preactjs.com/) interface. The simulation and the rendering don't depend on the UI.
 
-In development `window.app` (the `AppStore`) and `window.engine` are exposed for scripting.
+<details>
+<summary><strong>Colour mixing</strong></summary>
 
-## Text and shapes
+Each colour is stored as a **spectrum**, not as RGB:
 
-The **Text** tool (T) writes a line of text with whatever brush and pigment are selected. The letters
-come from single-stroke plotter fonts (Hershey, EMS, Cutlings, Relief, Shriinivas, Routed Gothic;
-`public/fonts/single-line/`, from [drawingbots.net](https://drawingbots.net)) so every glyph is a pen
-path rather than an outline. `src/text/TextWriter.ts` walks those paths in real time and feeds the engine
-scripted samples, so the strokes get the same spacing, speed thinning, bleeding and drying as hand strokes,
-and one word is one undo step. Options: font, size, speed, pressure, taper at stroke ends, letter spacing,
-hand wobble, anchor (left / centre / right of the tap) and whether to draw with the brush, pen or water.
+1. A picked colour is turned into a 38-band reflectance curve (the [spectral.js](https://github.com/rvanwijnen/spectral.js) method), then into absorbance `A(λ) = −ln R(λ)`.
+2. `A(λ)` is compressed to 7 numbers using a basis fitted offline over the sRGB gamut ([src/engine/spectralData.ts](src/engine/spectralData.ts)). Absorbance adds up linearly with concentration, so the fluid simulation can add, move and spread these numbers and the mix still comes out subtractive (Beer–Lambert, the transparent-glaze model that suits watercolour).
+3. The display shader rebuilds the spectrum at 16 wavelengths, applies `exp(−A)` and converts the result to sRGB.
 
-The **Shape** tool (G) draws lines, arrows, rectangles, ellipses, triangles, regular polygons and stars
-the same way: drag a box on the paper (hold Shift, or turn on Lock, for squares, circles and 45° lines)
-and the outline is drawn stroke by stroke when you let go (`src/shapes/`). The eighth shape, **SVG**,
-traces a file of your own: pick it from the panel or drop an `.svg` anywhere on the page, then drag a
-box to size it (Lock keeps the file's proportions; Rotate turns it). Paths, rects, circles, ellipses,
-lines and polygons are read with [vpype-js](https://github.com/plottertools/vpype-js), merged and sorted
-to shorten pen hops (`src/shapes/svgImport.ts`); text and images in the file are ignored. Undo removes
-a whole word or shape; Redo (⇧⌘Z) brings it back. Undo and redo are symmetric tile swaps in `src/engine/history.ts`.
+Compared with the full 38-band model, the average colour error is about 0.1–0.2 ΔE_OK (×100 scale), far below the ~2 a person can see. The 7 coefficients plus white-gouache coverage fit exactly in two RGBA16F textures.
 
-The **Fill** tool (K) is a paint bucket that behaves like a wash. Tap the paper and the area of similar
-colour around the tap (found with [q-floodfill](https://github.com/pavelkukov/q-floodfill) on a flat
-render of the sheet, without paper grain or wet tint; `src/fill/region.ts`) is covered by pigment and water
-that spread out from the tap in real time rather than appearing at once. A distance field over the area
-(how far the wash has travelled from the tap, and how far it is from the edge) goes to the GPU, and each
-frame the engine lays down the next band of it into the live simulation (`fillStep` in `src/engine/Engine.ts`),
-so the wash blooms, pools and leaves tide lines like a hand-painted one. Options: tolerance, speed, water,
-amount, a soft edge, and whether to lay down paint or clear water. One fill is one undo step.
+</details>
 
-## Colour mixing
+<details>
+<summary><strong>The water simulation</strong></summary>
 
-Pigment is stored as a **spectrum** rather than RGB, so mixes behave like paint:
-yellow + blue gives green, rose + ultramarine gives violet, and sienna + ultramarine gives a neutral grey.
+The fluid model is adapted from [inkwash](https://github.com/johnowhitaker/inkwash): a GPU grid for velocity, pressure and vorticity, a wetness field that keeps the flow on wet paper, and pigment that settles ("fixes") into the paper.
 
-1. A picked colour is upsampled to a 38-band reflectance curve (spectral.js method) and converted
-   to spectral absorbance `A(λ) = −ln R(λ)`.
-2. `A(λ)` is projected onto a 7-vector basis (uncentred SVD of absorbance over the sRGB gamut,
-   fitted offline, see `src/engine/spectralData.ts`). Absorbance is linear in concentration, so
-   these coefficients can be added, advected and diffused by the fluid sim and the mix stays
-   physically subtractive (Beer–Lambert, the transparent-glaze model that suits watercolour).
-3. The display shader rebuilds the spectrum at 16 wavelengths, applies `exp(−A)`, and integrates
-   to sRGB with a fitted quadrature.
+| Layer | Format | Purpose |
+| --- | --- | --- |
+| velocity, pressure | RG16F / R16F, 256 px on the short side | how the water flows |
+| wet | R16F, full resolution | standing water, which dries over time |
+| ink | 2× RGBA16F | pigment that can still move |
+| fixed | 2× RGBA16F | pigment settled into the paper |
+| paper | RGBA8 | the paper texture, generated once |
 
-Accuracy against the full 38-band model: mean ΔE_OK ≈ 0.1–0.2 (×100 scale) for single colours,
-dilutions, mixes and glazes, well below the visible threshold (~2). The coefficients are signed:
-never clamp them.
+Pigment moves between neighbouring pixels only as far as the water on both sides allows. That conserves pigment and keeps it off dry paper, so wet-on-dry strokes get hard edges and wet-in-wet strokes bloom as far as the water reaches. Pigment is also pulled toward the drying edge of a wash and left there, which makes the dark tide line.
 
-Seven coefficients + white-gouache coverage fit exactly in two RGBA16F textures.
+</details>
 
-## Simulation
+<details>
+<summary><strong>Performance</strong></summary>
 
-| layer | format | |
-|---|---|---|
-| velocity, pressure | RG16F / R16F, 256 px short side | water flow (from inkwash) |
-| wet | R16F, document res | standing water; dries exponentially |
-| ink | 2× RGBA16F (MRT), ping-pong | mobile pigment coefficients + white |
-| fixed | 2× RGBA16F | pigment settled into the paper ("Dry") |
-| paper | RGBA8 | procedural cold-press relief, generated once |
+- Only the wet part of the sheet is simulated, and only the changed part of the screen is redrawn.
+- Once everything is dry, the simulation stops, so an idle painting uses no GPU time.
+- Undo copies each 128 px tile only the first time a step changes it, so memory stays bounded. The oldest steps are dropped first.
+- The sheet is capped at 2048 × 1536 pixels.
 
-Pigment transport (`advectInkFS`) moves pigment with the water flow and exchanges it between
-neighbouring texels through *fluxes gated by the wetness of both sides*. That conserves pigment
-and keeps it from seeping onto dry paper, so wet-on-dry strokes get hard edges and wet-in-wet
-strokes bloom as far as the water reaches. A capillary term pushes pigment down the wetness
-gradient toward the drying edge, where it gets stranded: the dark tide line of a dried wash.
+</details>
 
-## Performance
+<details>
+<summary><strong>Code layout</strong></summary>
 
-- **Dirty-rect simulation.** Every document-resolution pass is scissored to the region that is
-  actually wet. The region grows only as fast as the wet front can move.
-- **Sleeps when dry.** Once the water has evaporated below the threshold where anything can
-  move, the sim stops and so does `requestAnimationFrame`. An idle canvas uses no GPU time.
-- **Partial redraws.** Only the changed region of the canvas is re-composited.
-- **Undo through copy-on-write tiles.** Before a 128 px tile is first modified in a step it is
-  copied into an atlas. Undo blits the tiles back. The fixed layer is snapshotted only when
-  fixing. Memory is bounded and the oldest steps are evicted.
-- Document capped at 2048 × 1536. Coalesced pointer events, with distance-based stamp
-  spacing so deposits don't depend on the input event rate.
+| Folder | What's inside |
+| --- | --- |
+| [src/engine/](src/engine/) | WebGL2 simulation and renderer, brushes, papers, spectral colour, undo history |
+| [src/app/](src/app/) | App state (`store.ts`), the tool list (`registry.ts`), keyboard shortcuts |
+| [src/components/](src/components/) | Toolbar, palette, brush library, panels, overlays |
+| [src/ui/](src/ui/) | Shared building blocks: panels, sliders, icons |
+| [src/text/](src/text/), [src/shapes/](src/shapes/), [src/fill/](src/fill/) | The Text, Shape and Fill tools |
+| [src/draw/](src/draw/) | Draws text and shape paths as real brush strokes |
+| [src/reference/](src/reference/), [src/export/](src/export/), [src/project/](src/project/) | Reference image, image export, `.wcp` project files |
+| [src/hand/](src/hand/) | Hand tracking with MediaPipe |
 
-## Brushes
+**To add a tool**, create a folder like `src/fill/` with a store class that implements `PanelTool` and a `*Panel.tsx` component, then add one entry to [src/app/registry.ts](src/app/registry.ts).
 
-The Brush and Water tools paint with the selected brush from the library (the dab thumbnail at the
-top of the tool bar, or `,` / `.` to cycle). Every brush is a **tip texture** plus behaviour, all in
-`src/engine/brushes.ts`:
+In development, `window.app` and `window.engine` are available in the browser console for scripting.
 
-| | |
-|---|---|
-| Round, Detail, Rigger | pointed rounds from a #8 down to a liner that holds a lot of paint |
-| Flat, Filbert, Dagger | shaped tips held at a fixed angle; an Apple Pencil's tilt turns them, so strokes go thick and thin with direction |
-| Hake, Fan, Dry Brush | tips that follow the stroke; bristle gaps become streaks along the mark |
-| Mop | floods the paper for washes |
-| Sponge, Stipple, Spatter | dabbed and scattered marks: cells, dots, flicked droplets |
-| Sumi | hairline to broad with pressure, fibrous edge |
+</details>
 
-Tips are generated procedurally (noise, Worley cells, hair segments) into a 192² texture in *tip
-space*, which the stamp shader maps onto a rotated ellipse of the brush's aspect ratio. Each
-preset sets spacing, scatter, dabs per stamp, size-vs-pressure, speed thinning, water capacity
-and `grain`: how much the paper's tooth gates the deposit. A dry brush (or any brush that has
-run out of water) only touches the peaks of the paper, so the stroke breaks up; pressing harder
-reaches into the valleys.
+## Credits
 
-**Import texture…** in the library turns any PNG/JPG into a brush tip (dark marks on white are
-inverted automatically; alpha is respected). Imported brushes are kept in `localStorage`.
-Drop an image anywhere on the page and choose **Make a brush** or **Use as reference**.
-
-## Reference image and saving
-
-**Ref** puts a photo or sketch (PNG, JPG, WebP, or an iPhone HEIC) under the paint to work from.
-Paint glazes over it like a tracing. Opacity is adjustable, and **R** shows or hides it.
-**Move** brings up a frame: drag it to move the image, drag a corner, scroll or pinch to scale it, and press Esc
-when done (painting pauses while the frame is up). **Fit** puts it back. The reference lives only
-on screen (`src/reference/`) and is never part of a saved image.
-
-**Save** opens the export options:
-- Background: **Transparent** (default; unpainted paper is see-through, with paint as colour + alpha that
-  looks the same when laid over white), **Paper** (the textured paper, as on screen), or **White**.
-- Format: PNG, JPEG or WebP. JPEG and WebP have a quality setting, and JPEG has no transparency.
-
-**S** saves immediately with the last settings.
-
-## Using it
-
-| | |
-|---|---|
-| **, .** | previous / next brush |
-| **B** Brush | wet paint: pigment and water |
-| **W** Water | clear water: wets paper, pushes paint around |
-| **P** Pen | ink line, feathers into wet areas |
-| **L** Lift | blot with a tissue: lifts wet (unfixed) paint |
-| **K** Fill | paint bucket: a wash spreads from the tap over the area of one colour |
-| **D** Dry | flash-dry and fix paint into the paper, so you can glaze over it |
-| **1–9, 0** | pigments; the last is white gouache |
-| **[ ]** | size |
-| **⌘Z** | undo |
-| **R** | show / hide the reference image |
-| **S** / **F** | save with the last export settings / fullscreen |
-
-Stylus: pressure shapes the stroke. The barrel button switches to water and the eraser end
-lifts. On iPad, once an Apple Pencil has been used, your finger becomes the water brush.
+- [inkwash](https://github.com/johnowhitaker/inkwash) by Jonathan Whitaker, for the GPU fluid simulation.
+- [spectral.js](https://github.com/rvanwijnen/spectral.js), for the spectral colour data.
+- Single-line fonts (Hershey, EMS, Relief and others) from [drawingbots.net](https://drawingbots.net).
+- [vpype-js](https://github.com/plottertools/vpype-js) for SVG import, [q-floodfill](https://github.com/pavelkukov/q-floodfill) for the fill tool, [heic-to](https://github.com/hoppergee/heic-to) for iPhone photos and [MediaPipe](https://ai.google.dev/edge/mediapipe) for hand tracking.
