@@ -149,7 +149,12 @@ In development, `window.app` and `window.engine` are available in the browser co
 
 ## Credits
 
-- [inkwash](https://github.com/johnowhitaker/inkwash) by Jonathan Whitaker, for the GPU fluid simulation.
+- [inkwash](https://github.com/johnowhitaker/inkwash) by Jonathan Whitaker, for the wet-paper fluid model, and [WebGL-Fluid-Simulation](https://github.com/PavelDoGreat/WebGL-Fluid-Simulation) by Pavel Dobryakov, for the GPU fluid solver.
+- [water-brush](https://github.com/1000ship/water-brush) by Chun Seonghyeok, where this app started.
 - [spectral.js](https://github.com/rvanwijnen/spectral.js), for the spectral colour data.
 - Single-line fonts (Hershey, EMS, Relief and others) from [drawingbots.net](https://drawingbots.net).
 - [vpype-js](https://github.com/plottertools/vpype-js) for SVG import, [q-floodfill](https://github.com/pavelkukov/q-floodfill) for the fill tool, [heic-to](https://github.com/hoppergee/heic-to) for iPhone photos and [MediaPipe](https://ai.google.dev/edge/mediapipe) for hand tracking.
+
+## License
+
+[MIT](LICENSE). The bundled fonts and third-party code keep their own licenses (SIL Open Font License, Hershey Fonts license, MIT, Apache-2.0, LGPL-3.0). See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
