@@ -33,6 +33,9 @@ const DEFAULTS: TextSettings = {
   size: 0.4, speed: 0.5, pressure: 0.6, taper: 0.5, spacing: 0, wobble: 0.2,
 };
 
+/** Widest brush footprint radius for text, in em: thinner than a letter's counters. */
+const MAX_RADIUS_EM = 0.06;
+
 /** Em height in document heights. */
 export const emSize = (v: number) => 0.03 * Math.pow(12, v);
 
@@ -111,7 +114,7 @@ export class TextStore implements PanelTool {
     this.progress.value = [0, strokes.length];
     const text = s.text.trim();
     this.writer.write(strokes, anchor, {
-      tool: s.tool, ref: em, speed: penSpeed(s.speed), pressure: s.pressure, taper: s.taper, wobble: s.wobble,
+      tool: s.tool, ref: em, maxRadius: em * MAX_RADIUS_EM, speed: penSpeed(s.speed), pressure: s.pressure, taper: s.taper, wobble: s.wobble,
       label: `Text “${text.length > 18 ? `${text.slice(0, 18)}…` : text}”`,
     }, {
       onProgress: (done, total) => { this.progress.value = [done, total]; },

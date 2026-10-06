@@ -154,6 +154,8 @@ export class WatercolorEngine {
   fingerIsWater = true;
   /** When false, pointers on the paper are ignored (another tool, e.g. text, is driving it). */
   interactive = true;
+  /** Footprint scale of the scripted stroke in progress (see scriptBegin). */
+  private scriptScale = 1;
   private nav = false;
 
   private tipTextures = new Map<string, WebGLTexture>();
@@ -724,11 +726,14 @@ export class WatercolorEngine {
    * Start a stroke driven by code rather than a pointer; it runs through the same
    * pipeline (spacing, speed thinning, dwell, undo). Returns false while another
    * stroke is still on the paper. A string `step` opens an undo step with that label;
-   * pass false to group several strokes (the letters of a word) into one.
+   * pass false to group several strokes (the letters of a word) into one. `maxRadius`
+   * (document heights) shrinks a footprint that would be wider than that at full
+   * pressure, so a big brush still writes small letters legibly.
    */
-  scriptBegin(tool: Tool, x: number, y: number, pressure: number, step: string | false = 'Stroke'): boolean {
+  scriptBegin(tool: Tool, x: number, y: number, pressure: number, step: string | false = 'Stroke', maxRadius?: number): boolean {
     if (this.stroke) return false;
     if (step !== false) this.beginStep('script', step);
+    this.scriptScale = maxRadius ? Math.min(1, maxRadius / this.radius(tool, 1, 0)) : 1;
     this.stroke = {
       pointerId: SCRIPT_POINTER, pointerType: 'pen', tool, started: false, ending: false,
       x: 0, y: 0, cx: 0, cy: 0, pr: 0, t: performance.now(), speed: 0, simPressure: 0.45, carry: 0, travelled: 0, moved: false,
@@ -1233,7 +1238,7 @@ export class WatercolorEngine {
 
   /* -------------------------------------------------------------- strokes */
 
-  private sizeMult() { return Math.pow(3, (this.params.size - 0.5) * 2); }
+  private sizeMult() { return Math.pow(3, (this.params.size - 0.5) * 2) * (this.scripting ? this.scriptScale : 1); }
 
   /** Footprint radius in document heights. */
   private radius(tool: Tool, pr: number, speed: number) {
