@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'preact/hooks';
 import { ActionBar } from '../components/ActionBar';
 import { BrushLibrary } from '../components/BrushLibrary';
+import { HandOverlay } from '../components/HandOverlay';
 import { HistoryPanel } from '../components/HistoryPanel';
 import { DropChoice, FillChoice, Ghost, Toast } from '../components/Overlays';
 import { Palette } from '../components/Palette';
@@ -42,6 +43,7 @@ function Chrome() {
     <Ghost />
     <DropChoice />
     <FillChoice />
+    <HandOverlay />
   </>;
 }
 

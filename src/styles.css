@@ -394,3 +394,33 @@ body.space-pan .cursor, body.panning .cursor { opacity: 0 !important; }
 @media (max-width: 640px) {
   .zoom { right: auto; left: calc(10px + env(safe-area-inset-left)); bottom: calc(96px + env(safe-area-inset-bottom)); }
 }
+
+/* hand painting: the hand cursor, its dwell ring, the hovered control and the camera picture */
+.hand-overlay { position: fixed; inset: 0; z-index: 8; pointer-events: none; }
+.hand-target {
+  position: absolute; box-sizing: border-box; border-radius: 9px;
+  border: 1.5px solid rgba(42, 42, 51, 0.35); background: rgba(42, 42, 51, 0.04);
+  transition: left 0.08s, top 0.08s, width 0.08s, height 0.08s;
+}
+.hand-target.grab { border-color: rgba(60, 90, 160, 0.8); background: rgba(60, 90, 160, 0.08); }
+.hand-cursor { position: absolute; left: 0; top: 0; overflow: visible; }
+.hand-cursor .base { fill: rgba(255, 255, 255, 0.35); stroke: rgba(42, 42, 51, 0.5); stroke-width: 1.5; }
+.hand-cursor .dwell { fill: none; stroke: var(--ink); stroke-width: 3; stroke-linecap: round; transform: rotate(-90deg); transform-origin: 50% 50%; }
+.hand-cursor .dot { fill: rgba(42, 42, 51, 0.7); transition: r 0.1s; }
+.hand-cursor.pinch .base { stroke: var(--ink); fill: rgba(42, 42, 51, 0.12); }
+.hand-cursor.paint .base { stroke: rgba(60, 90, 160, 0.9); fill: rgba(60, 90, 160, 0.14); }
+.hand-cursor.paint .dot { fill: rgba(60, 90, 160, 0.9); }
+.hand-pip {
+  position: fixed; z-index: 5; pointer-events: none;
+  right: calc(14px + env(safe-area-inset-right)); bottom: calc(66px + env(safe-area-inset-bottom));   /* above the zoom control */
+  width: 160px; aspect-ratio: 4 / 3; border-radius: var(--radius); overflow: hidden;
+  background: rgba(42, 42, 51, 0.85); border: 1px solid var(--line); box-shadow: 0 6px 24px rgba(40, 35, 25, 0.12);
+}
+.hand-pip video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); display: block; }
+.hand-pip .box { position: absolute; left: 15%; top: 15%; width: 70%; height: 70%; border: 1px dashed rgba(255, 255, 255, 0.55); border-radius: 6px; }
+.hand-pip span {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 0 12px;
+  font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: #f6f3ec; background: rgba(42, 42, 51, 0.5);
+}
+.settings .hand-row .seg { flex: 1; }
+.settings .note { font-size: 10px; color: var(--ink-faint); line-height: 1.4; margin-top: -4px; }

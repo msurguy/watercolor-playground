@@ -4,6 +4,8 @@ import { clampDocSize, DEFAULT_PARAMS, MAX_ZOOM, MIN_ZOOM, WatercolorEngine, typ
 import type { StepInfo } from '../engine/history';
 import { DEFAULT_PAPER, PAPER_SIZES, PAPERS, type PaperPreset } from '../engine/papers';
 import { ExportStore } from '../export/ExportStore';
+import type { HandMode } from '../hand/HandMode';
+import { HAND_IDLE, type HandCursor, type HandStatus } from '../hand/types';
 import { customEntry, PALETTE, type PaletteEntry } from '../palette';
 import { isProjectFile, type ProjectData } from '../project/format';
 import { ProjectStore } from '../project/ProjectStore';
@@ -39,6 +41,12 @@ const sanitizeSize = (v: PaperSizeChoice): PaperSizeChoice => {
   return { preset, w, h };
 };
 const isEngineTool = (t: UiTool): t is Tool => ENGINE_TOOLS.some(e => e.id === t);
+const handErrorText = (e: unknown) => {
+  const name = e instanceof Error ? e.name : '';
+  if (name === 'NotAllowedError' || name === 'SecurityError') return 'Camera access was denied';
+  if (name === 'NotFoundError' || name === 'OverconstrainedError') return 'No camera found';
+  return 'Could not start hand tracking';
+};
 
 /**
  * All UI state as signals, plus the actions that change it. Owns the engine and the
@@ -82,6 +90,11 @@ export class AppStore {
   readonly zoom = signal(1);
   /** A dropped image waiting for the user to say what it is for. */
   readonly dropped = signal<{ file: File; x: number; y: number } | null>(null);
+  /** Hand painting (camera + MediaPipe): the switch, where it is in loading, and what the hand is doing. Not remembered: it needs the camera. */
+  readonly handEnabled = signal(false);
+  readonly handStatus = signal<HandStatus>('off');
+  readonly hand = signal<HandCursor>(HAND_IDLE);
+  readonly handStream = signal<MediaStream | null>(null);
 
   readonly panelTools = new Map<string, { def: PanelToolDef; tool: PanelTool }>();
   readonly reference: ReferenceStore;
@@ -91,6 +104,8 @@ export class AppStore {
   readonly activePanelTool = computed(() => this.panelTools.get(this.tool.value)?.tool ?? null);
 
   private confirmTimer = 0;
+  private handMode: HandMode | null = null;
+  private handStarting: Promise<void> | null = null;
   private textureBefore: DocState | null = null;
   private readonly navigation: Navigation;
 
@@ -293,6 +308,45 @@ export class AppStore {
     this.closePopovers();
   }
 
+  /**
+   * Switch hand painting on or off. Switching on pulls in MediaPipe (its own chunk), asks for the
+   * camera and loads the model; a failure shows a toast and flips the switch back.
+   */
+  async setHandMode(on: boolean) {
+    this.handEnabled.value = on;
+    if (on) {
+      if (this.handMode || this.handStarting) return;
+      this.handStatus.value = 'loading';
+      this.handStarting = (async () => {
+        const { HandMode } = await import('../hand');
+        const mode = new HandMode({
+          engine: this.engine,
+          paintTool: () => { const t = this.tool.peek(); return isEngineTool(t) && this.engine.interactive ? t : null; },
+          setCursor: c => { this.hand.value = c; },
+          setStream: s => { this.handStream.value = s; },
+        });
+        await mode.start();
+        if (!this.handEnabled.peek()) { mode.stop(); return; }   // switched off while loading
+        this.handMode = mode;
+        this.handStatus.value = 'on';
+        if (import.meta.env.DEV) (window as unknown as { hand: HandMode }).hand = mode;
+      })().catch((e: unknown) => {
+        this.handStatus.value = 'error';
+        this.handEnabled.value = false;
+        this.hand.value = HAND_IDLE;
+        this.handStream.value = null;
+        showToast(handErrorText(e));
+      }).finally(() => { this.handStarting = null; });
+    } else {
+      // a start still under way sees the switch off and stops itself when it finishes
+      this.handMode?.stop();
+      this.handMode = null;
+      this.handStatus.value = 'off';
+      this.hand.value = HAND_IDLE;
+      this.handStream.value = null;
+    }
+  }
+
   /** First press arms the button ("Sure?"), a second press within 2.5 s clears. */
   clear() {
     clearTimeout(this.confirmTimer);
@@ -348,5 +402,5 @@ export class AppStore {
     this.reference.syncRect();
   }
 
-  destroy() { this.navigation.destroy(); this.engine.destroy(); }
+  destroy() { void this.setHandMode(false); this.navigation.destroy(); this.engine.destroy(); }
 }
