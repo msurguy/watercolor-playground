@@ -23,9 +23,11 @@ export function ActionBar() {
     <Panel class="actions">
       <Action icon="undo" label="Undo" title="Undo (⌘Z)" disabled={!app.canUndo.value} onClick={() => app.undo()} />
       <Action icon="redo" label="Redo" title="Redo (⇧⌘Z)" disabled={!app.canRedo.value} onClick={() => app.redo()} />
+      <Action icon="history" label="History" title="History: every step, click one to go back or forward to it" popover="history" onClick={() => app.togglePopover('history')} />
       <Action icon="dry" label="Dry" title="Dry and fix the painting into the paper (D)" onClick={() => app.dry()} />
       <Action icon="clear" label={sure ? 'Sure?' : 'Clear'} title="Clear the paper" danger={sure} onClick={() => app.clear()} />
       <Action icon="image" label="Ref" title="Reference image under the paint (R to show / hide)" popover="reference" onClick={() => app.togglePopover('reference')} />
+      <Action icon="paper" label="Paper" title="Paper texture: swap the sheet at any time" popover="paper" onClick={() => app.togglePopover('paper')} />
       <Action icon="save" label="Save" title="Save image (S saves with the last settings)" popover="save" onClick={() => app.togglePopover('save')} />
       <Action icon="sliders" label="Settings" title="Brush & water settings" popover="settings" onClick={() => app.togglePopover('settings')} />
     </Panel>

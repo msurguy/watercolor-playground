@@ -1,5 +1,7 @@
 // Minimal WebGL2 plumbing: full-screen-triangle programs and (multi-)render targets.
 
+import { f32ToF16 } from './half';
+
 export const QUAD_VS = `#version 300 es
 precision highp float;
 layout(location=0) in vec2 aPos;
@@ -37,7 +39,7 @@ export interface DoubleTarget {
 export class GL {
   readonly gl: WebGL2RenderingContext;
   private vs: WebGLShader;
-  private resources: (() => void)[] = [];
+  private resources = new Map<Target, () => void>();
 
   constructor(gl: WebGL2RenderingContext) {
     this.gl = gl;
@@ -107,7 +109,7 @@ export class GL {
     }
     const target = { w, h, fbo, tex, views };
     this.clearTarget(target);
-    this.resources.push(() => {
+    this.resources.set(target, () => {
       gl.deleteFramebuffer(fbo);
       views.forEach(v => gl.deleteFramebuffer(v));
       tex.forEach(t => gl.deleteTexture(t));
@@ -188,9 +190,73 @@ export class GL {
     gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
   }
 
+
+  /**
+   * Read a single-attachment float framebuffer (a `Target.views[i]`) as half floats:
+   * `channels` (1 or 4) per texel, rows bottom-up (row 0 is y = 0), within `rect`
+   * (default: all of it). Reads HALF_FLOAT directly when the driver allows, else
+   * FLOAT in bands converted on the CPU.
+   */
+  readHalf(fb: WebGLFramebuffer, w: number, h: number, channels: 1 | 4, rect?: Rect): Uint16Array {
+    const { gl } = this;
+    const x0 = rect?.x0 ?? 0, y0 = rect?.y0 ?? 0, rw = (rect?.x1 ?? w) - x0, rh = (rect?.y1 ?? h) - y0;
+    const out = new Uint16Array(Math.max(0, rw * rh * channels));
+    if (rw <= 0 || rh <= 0) return out;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+    gl.pixelStorei(gl.PACK_ALIGNMENT, 1);
+    // RGBA / FLOAT is always allowed for a float colour buffer; RGBA / HALF_FLOAT only when the driver says so
+    const type = gl.getParameter(gl.IMPLEMENTATION_COLOR_READ_TYPE) as number;
+    const format = gl.getParameter(gl.IMPLEMENTATION_COLOR_READ_FORMAT) as number;
+    const direct = format === gl.RGBA && type === gl.HALF_FLOAT;
+    gl.getError();   // clear anything stale so a failed read below is caught
+    const rows = Math.max(1, Math.floor((4 * 1024 * 1024) / (rw * 4)));   // ~16 MiB of float32 per band
+    const band32 = direct ? null : new Float32Array(rw * rows * 4);
+    const band16 = direct && channels === 1 ? new Uint16Array(rw * rows * 4) : null;
+    for (let y = 0; y < rh; y += rows) {
+      const n = Math.min(rows, rh - y);
+      if (direct && channels === 4) {
+        gl.readPixels(x0, y0 + y, rw, n, gl.RGBA, gl.HALF_FLOAT, out.subarray(y * rw * 4, (y + n) * rw * 4));
+        continue;
+      }
+      let src: Uint16Array;
+      if (direct) {
+        gl.readPixels(x0, y0 + y, rw, n, gl.RGBA, gl.HALF_FLOAT, band16!);
+        src = band16!;
+      } else {
+        gl.readPixels(x0, y0 + y, rw, n, gl.RGBA, gl.FLOAT, band32!);
+        if (channels === 4) { f32ToF16(band32!, out.subarray(y * rw * 4), n * rw * 4); continue; }
+        src = new Uint16Array(n * rw * 4);
+        f32ToF16(band32!, src, n * rw * 4);
+      }
+      const base = y * rw;
+      for (let i = 0, m = n * rw; i < m; i++) out[base + i] = src[i * 4];
+    }
+    const err = gl.getError();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    if (err) throw new Error('This GPU cannot read its paint layers back.');
+    return out;
+  }
+
+  /** Upload half floats into a texStorage2D texture at (x, y); `format` is RGBA or RED to match it. */
+  uploadHalf(tex: WebGLTexture, x: number, y: number, w: number, h: number, format: number, data: Uint16Array) {
+    const { gl } = this;
+    if (w <= 0 || h <= 0) return;
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 2);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, x, y, w, h, format, gl.HALF_FLOAT, data);
+  }
+
+  /** Free one target now (a scratch target that should not live until disposeTargets). */
+  disposeTarget(t: Target) {
+    this.resources.get(t)?.();
+    this.resources.delete(t);
+  }
+
   /** Free every target created so far (used on document re-creation). */
   disposeTargets() {
     this.resources.forEach(f => f());
-    this.resources = [];
+    this.resources.clear();
   }
 }

@@ -12,11 +12,17 @@ const PATHS: Record<string, string> = {
   clear: 'M5 7h14 M10 7V4.5h4V7 M7 7l1 13h8l1-13',
   image: 'M4 5h16v14H4Z M4 16l5-5 4 4 2.5-2.5L20 17 M15.5 7.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Z',
   save: 'M12 4v11 M7.5 10.5 12 15l4.5-4.5 M5 19.5h14',
+  paper: 'M6 3.5h8l4 4v13H6Z M14 3.5v4h4 M9 12.5c1-.8 2-.8 3 0s2 .8 3 0 M9 16c1-.8 2-.8 3 0s2 .8 3 0',
   sliders: 'M4 7h9 M17 7h3 M4 17h3 M11 17h9 M15 5v4 M9 15v4',
   library: 'M4 5.5h6v6H4Z M14 5.5h6v6h-6Z M4 14.5h6v6H4Z M14 14.5h6v6h-6Z',
   plus: 'M12 5v14 M5 12h14',
+  minus: 'M5 12h14',
+  fit: 'M4 9V4h5 M15 4h5v5 M20 15v5h-5 M9 20H4v-5 M8.5 8.5h7v7h-7Z',
   close: 'M6 6l12 12 M18 6 6 18',
   chevron: 'M9 6l6 6-6 6',
+  history: 'M12 3.5a8.5 8.5 0 1 0 8.5 8.5 M3.5 12A8.5 8.5 0 0 1 12 3.5 M12 7.5V12l3 2 M3.5 7.5V12H8',
+  resize: 'M4 4h7v7H4Z M11 11l9 9 M20 13v7h-7 M4 15v5h5',
+  folder: 'M3.5 6.5h6l2 2.5h9v10h-17Z',
 };
 
 /** A stroke icon from the table above, or any 24×24 path via `d`. */

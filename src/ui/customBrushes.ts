@@ -3,7 +3,8 @@ import { decodeImage } from '../reference/decode';
 
 const KEY = 'watercolor.customBrushes';
 
-interface Stored { id: string; name: string; png: string }
+/** A custom brush as stored: its tip as a PNG data URL. */
+export interface Stored { id: string; name: string; png: string }
 
 /** Read an image file into tip data: luminance (inverted on a light background) times alpha. */
 export async function tipFromImage(file: Blob): Promise<Uint8Array> {
@@ -41,7 +42,7 @@ export function makeCustomBrush(id: string, name: string, tip: Uint8Array): Brus
   return buildBrush({ ...CUSTOM_BASE, id, name, hint: 'Imported texture', tip, custom: true });
 }
 
-function tipToPng(tip: Uint8Array): string {
+export function tipToPng(tip: Uint8Array): string {
   const n = Math.round(Math.sqrt(tip.length));
   const c = document.createElement('canvas');
   c.width = n; c.height = n;
@@ -56,30 +57,35 @@ function readStored(): Stored[] {
   try { return JSON.parse(localStorage.getItem(KEY) ?? '[]') as Stored[]; } catch { return []; }
 }
 
+export const storedTip = (b: Brush): Stored => ({ id: b.id, name: b.name, png: tipToPng(b.tipData) });
+
 /** Persist the set of custom brushes. Fails quietly when storage is full or blocked. */
 export function saveCustomBrushes(brushes: Brush[]) {
   try {
-    const items: Stored[] = brushes.map(b => ({ id: b.id, name: b.name, png: tipToPng(b.tipData) }));
+    const items: Stored[] = brushes.map(storedTip);
     localStorage.setItem(KEY, JSON.stringify(items));
     return true;
   } catch { return false; }
 }
 
+/** Rebuild a brush from its stored form. */
+export async function brushFromStored(s: Stored): Promise<Brush> {
+  const blob = await (await fetch(s.png)).blob();
+  const bmp = await createImageBitmap(blob);
+  const c = document.createElement('canvas');
+  c.width = bmp.width; c.height = bmp.height;
+  const ctx = c.getContext('2d')!;
+  ctx.drawImage(bmp, 0, 0);
+  const d = ctx.getImageData(0, 0, bmp.width, bmp.height).data;
+  const tip = new Uint8Array(bmp.width * bmp.height);
+  for (let i = 0; i < tip.length; i++) tip[i] = d[i * 4];
+  return makeCustomBrush(s.id, s.name, tip);
+}
+
 export async function loadCustomBrushes(): Promise<Brush[]> {
   const out: Brush[] = [];
   for (const s of readStored()) {
-    try {
-      const blob = await (await fetch(s.png)).blob();
-      const bmp = await createImageBitmap(blob);
-      const c = document.createElement('canvas');
-      c.width = bmp.width; c.height = bmp.height;
-      const ctx = c.getContext('2d')!;
-      ctx.drawImage(bmp, 0, 0);
-      const d = ctx.getImageData(0, 0, bmp.width, bmp.height).data;
-      const tip = new Uint8Array(bmp.width * bmp.height);
-      for (let i = 0; i < tip.length; i++) tip[i] = d[i * 4];
-      out.push(makeCustomBrush(s.id, s.name, tip));
-    } catch { /* skip a corrupt entry */ }
+    try { out.push(await brushFromStored(s)); } catch { /* skip a corrupt entry */ }
   }
   return out;
 }

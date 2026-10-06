@@ -12,17 +12,24 @@ const SLIDERS: SliderSpec<FillSettings>[] = [
   { key: 'soft', label: 'Soft edge', hint: 'Feather the wash at the edge of the area' },
 ];
 
+const SOURCES: { id: boolean; label: string; title: string }[] = [
+  { id: false, label: 'Paint', title: 'Areas end where the paint changes colour' },
+  { id: true, label: 'Reference', title: 'Areas end at the lines of the reference image, like tracing it' },
+];
+
 const MODES: { id: FillSettings['mode']; label: string }[] = [{ id: 'paint', label: 'Paint' }, { id: 'water', label: 'Water' }];
 
 export function FillPanel({ tool }: { tool: FillStore }) {
   const app = useApp();
   const s = tool.settings.value;
+  const ref = app.reference;
   return (
     <ToolPanel title="Fill" class="fill" open={tool.active.value} status={tool.status.value} busy={tool.progress.value !== null}
       sub="Tap an area of the paper; a wash of the current pigment spreads out from the tap until it meets a different colour."
       onStop={() => tool.stop()} onClose={() => app.setTool('brush')}>
       <div class="tool-rows">
         <Row label="Fill with"><Seg options={MODES} value={s.mode} onChange={mode => tool.set({ mode })} /></Row>
+        {ref.has.value && <Row label="Areas from"><Seg options={SOURCES} value={ref.forFill.value} onChange={on => ref.useForFill(on)} /></Row>}
         <SliderRows spec={SLIDERS} settings={s} onChange={p => tool.set(p)} />
       </div>
     </ToolPanel>

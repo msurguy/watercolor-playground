@@ -5,14 +5,17 @@ export function Row({ label, title, children, hidden }: { label: string; title?:
   return <label class="slider" title={title} hidden={hidden}><span>{label}</span>{children}</label>;
 }
 
-export function Slider({ label, value, min = 0, max = 1, step = 0.01, title, disabled, hidden, onInput }: {
+export function Slider({ label, value, min = 0, max = 1, step = 0.01, title, disabled, hidden, onInput, onChange }: {
   label: string; value: number; min?: number; max?: number; step?: number; title?: string; disabled?: boolean; hidden?: boolean;
   onInput(v: number): void;
+  /** The thumb was let go (once per drag), for things that record one undo step per adjustment. */
+  onChange?(v: number): void;
 }) {
   return (
     <Row label={label} title={title} hidden={hidden}>
       <input type="range" min={min} max={max} step={step} value={value} disabled={disabled}
-        onInput={e => onInput(Number((e.currentTarget as HTMLInputElement).value))} />
+        onInput={e => onInput(Number((e.currentTarget as HTMLInputElement).value))}
+        onChange={onChange ? e => onChange(Number((e.currentTarget as HTMLInputElement).value)) : undefined} />
     </Row>
   );
 }

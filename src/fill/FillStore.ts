@@ -64,13 +64,14 @@ export class FillStore implements PanelTool {
       this.picking.value = false;
       if (!this.active.peek()) return;
       const s = this.settings.peek();
-      const flat = engine.readFlat();
+      // with a tracing reference, the areas come from its lines rather than from the paint
+      const flat = (engine.referenceForFill && engine.readReferenceFlat()) || engine.readFlat();
       const tol = Math.round(s.tolerance * s.tolerance * 255);   // 0.25 -> 16 of 255 per channel
       const mask = pickRegion({ width: dw, height: dh, data: new Uint8ClampedArray(flat.buffer) }, px, py, tol);
       if (!mask) { showToast('Nothing to fill here'); return; }
       const region = distanceField(mask, dw, dh, px, py, EDGE_CAP);
       if (region.count < 4) { showToast('That area is too small to fill'); return; }
-      if (!engine.fillBegin(region.field, region.bbox)) { showToast('Wait for the stroke to finish'); return; }
+      if (!engine.fillBegin(region.field, region.bbox, s.mode === 'water' ? 'Water fill' : 'Fill')) { showToast('Wait for the stroke to finish'); return; }
       this.run = { raf: 0, from: -0.5, maxDist: region.maxDist + engine.fillMargin, last: performance.now() };
       this.run.raf = requestAnimationFrame(this.frame);
       this.progress.value = 0;

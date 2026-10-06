@@ -2,7 +2,7 @@ import { computed, effect, signal, type ReadonlySignal } from '@preact/signals';
 import type { Tool, WatercolorEngine } from '../engine/Engine';
 import type { PanelTool, PaperGesture } from '../app/tools';
 import { persisted } from '../app/persisted';
-import { resizeTick } from '../app/resize';
+import { resizeTick, viewTick } from '../app/resize';
 import { showToast } from '../app/toast';
 import { hideGhost, setGhost } from '../draw/ghost';
 import { penSpeed, StrokeWriter } from '../draw/StrokeWriter';
@@ -82,7 +82,7 @@ export class TextStore implements PanelTool {
 
   /** Client-space path of the ghost at the hovered anchor. */
   private renderGhost() {
-    resizeTick.value;   // re-run after a resize
+    resizeTick.value; viewTick.value;   // re-run after a resize, zoom or pan
     const layout = this.layout.value, hover = this.hover.value;
     if (!this.active.value || !layout || !hover || this.writing.value) { hideGhost(); return; }
     const em = emSize(this.settings.value.size), a = this.engine.aspect;
@@ -109,8 +109,10 @@ export class TextStore implements PanelTool {
     const strokes = layout.strokes.map(pl => pl.map(([x, y]) => [x * em, -y * em] as [number, number]));
     this.writing.value = true;
     this.progress.value = [0, strokes.length];
+    const text = s.text.trim();
     this.writer.write(strokes, anchor, {
       tool: s.tool, ref: em, speed: penSpeed(s.speed), pressure: s.pressure, taper: s.taper, wobble: s.wobble,
+      label: `Text “${text.length > 18 ? `${text.slice(0, 18)}…` : text}”`,
     }, {
       onProgress: (done, total) => { this.progress.value = [done, total]; },
       onDone: () => { this.writing.value = false; this.progress.value = null; },

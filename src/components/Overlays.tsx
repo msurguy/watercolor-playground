@@ -40,3 +40,18 @@ export function DropChoice() {
     </div>
   );
 }
+
+/** After a reference is imported: should the Fill tool trace it? */
+export function FillChoice() {
+  const ref = useApp().reference;
+  const ask = ref.askFill.value && ref.has.value;
+  return (
+    <div class="panel fill-choice" hidden={!ask} role="dialog" aria-label="Use the reference for fills">
+      <p>Reference added. Use it as the tracing for fills?</p>
+      <div class="row">
+        <button class="on" onClick={() => ref.useForFill(true)}><Icon name="image" size={16} /><span>Trace for fills</span></button>
+        <button onClick={() => ref.useForFill(false)}><span>Just a reference</span></button>
+      </div>
+    </div>
+  );
+}

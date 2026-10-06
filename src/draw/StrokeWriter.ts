@@ -22,6 +22,8 @@ export interface WriteOptions {
   taper: number;
   /** 0..1: hand tremor along the path. */
   wobble: number;
+  /** Name of the undo step the whole write becomes. */
+  label: string;
 }
 
 export interface WriteCallbacks {
@@ -136,7 +138,7 @@ export class StrokeWriter {
     }
     if (this.phase === 'begin') {
       const [x, y] = this.at(run, 0);
-      if (this.engine.scriptBegin(tool, x, y, this.pressureAt(run, 0), this.first)) {
+      if (this.engine.scriptBegin(tool, x, y, this.pressureAt(run, 0), this.first ? this.opts.label : false)) {
         this.first = false;
         this.phase = 'draw';
         this.dist = 0;

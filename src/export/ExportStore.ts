@@ -1,12 +1,13 @@
 import type { ExportBackground, ExportFormat, WatercolorEngine } from '../engine/Engine';
 import { persisted } from '../app/persisted';
 import { showToast } from '../app/toast';
+import { downloadBlob, stampedName } from './download';
 
 const KEY = 'watercolor.export';
 
-export interface ExportSettings { format: ExportFormat; background: ExportBackground; quality: number }
+export interface ExportSettings { format: ExportFormat; background: ExportBackground; quality: number; texture: boolean }
 
-const DEFAULTS: ExportSettings = { format: 'png', background: 'transparent', quality: 0.92 };
+const DEFAULTS: ExportSettings = { format: 'png', background: 'transparent', quality: 0.92, texture: true };
 export const FORMATS: { id: ExportFormat; label: string; ext: string }[] = [
   { id: 'png', label: 'PNG', ext: 'png' },
   { id: 'jpeg', label: 'JPEG', ext: 'jpg' },
@@ -14,7 +15,7 @@ export const FORMATS: { id: ExportFormat; label: string; ext: string }[] = [
 ];
 export const BACKGROUNDS: { id: ExportBackground; label: string; title: string }[] = [
   { id: 'transparent', label: 'Transparent', title: 'Transparent: only the paint, no paper' },
-  { id: 'paper', label: 'Paper', title: 'On the textured watercolour paper' },
+  { id: 'paper', label: 'Paper', title: 'On the chosen paper' },
   { id: 'white', label: 'White', title: 'On plain white' },
 ];
 
@@ -22,7 +23,8 @@ export const BACKGROUNDS: { id: ExportBackground; label: string; title: string }
 export class ExportStore {
   readonly settings = persisted<ExportSettings>(KEY, DEFAULTS);
 
-  constructor(private engine: WatercolorEngine) {}
+  /** `paperName` names the current sheet in the confirmation. */
+  constructor(private engine: WatercolorEngine, private paperName: () => string) {}
 
   set(p: Partial<ExportSettings>) {
     const s = { ...this.settings.value, ...p };
@@ -33,16 +35,12 @@ export class ExportStore {
 
   /** Save straight away with the current settings. */
   async save() {
-    const { format, background, quality } = this.settings.peek();
+    const { format, background, quality, texture } = this.settings.peek();
     try {
-      const blob = await this.engine.exportImage({ format, background, quality: format === 'png' ? undefined : quality });
-      const ext = FORMATS.find(f => f.id === format)!.ext;
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = `watercolor-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.${ext}`;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-      const bg = background === 'transparent' ? 'transparent' : `on ${background}`;
+      const blob = await this.engine.exportImage({ format, background, quality: format === 'png' ? undefined : quality, texture });
+      downloadBlob(blob, stampedName(FORMATS.find(f => f.id === format)!.ext));
+      const bg = background === 'transparent' ? 'transparent'
+        : `on ${texture ? '' : 'flat '}${background === 'paper' ? this.paperName() : 'white'}`;
       showToast(`Saved ${FORMATS.find(f => f.id === format)!.label} · ${bg}`);
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Could not save the image');

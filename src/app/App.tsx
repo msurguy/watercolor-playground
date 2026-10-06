@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'preact/hooks';
 import { ActionBar } from '../components/ActionBar';
 import { BrushLibrary } from '../components/BrushLibrary';
-import { DropChoice, Ghost, Toast } from '../components/Overlays';
+import { HistoryPanel } from '../components/HistoryPanel';
+import { DropChoice, FillChoice, Ghost, Toast } from '../components/Overlays';
 import { Palette } from '../components/Palette';
 import { Paper } from '../components/Paper';
+import { PaperPanel } from '../components/PaperPanel';
 import { SettingsPanel } from '../components/SettingsPanel';
 import { Toolbar } from '../components/Toolbar';
+import { ZoomControl } from '../components/ZoomControl';
 import { ExportPanel } from '../export/ExportPanel';
 import { ReferencePanel } from '../reference/ReferencePanel';
 import { RefFrame } from '../reference/RefFrame';
@@ -29,12 +32,16 @@ function Chrome() {
     <ActionBar />
     <SettingsPanel />
     <ReferencePanel />
+    <PaperPanel />
+    <HistoryPanel />
     <ExportPanel />
     <Palette />
+    <ZoomControl />
     {[...app.panelTools.values()].map(({ def, tool }) => <def.Panel key={def.id} tool={tool} />)}
     <RefFrame />
     <Ghost />
     <DropChoice />
+    <FillChoice />
   </>;
 }
 

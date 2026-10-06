@@ -2,7 +2,7 @@ import { computed, effect, signal, type ReadonlySignal } from '@preact/signals';
 import type { Tool, WatercolorEngine } from '../engine/Engine';
 import type { PanelTool, PaperGesture } from '../app/tools';
 import { persisted } from '../app/persisted';
-import { resizeTick } from '../app/resize';
+import { resizeTick, viewTick } from '../app/resize';
 import { showToast } from '../app/toast';
 import { hideGhost, setGhost } from '../draw/ghost';
 import { penSpeed, StrokeWriter } from '../draw/StrokeWriter';
@@ -83,7 +83,7 @@ export class ShapeStore implements PanelTool {
   }
 
   private renderGhost() {
-    resizeTick.value;
+    resizeTick.value; viewTick.value;
     const drag = this.drag.value;
     if (!this.active.value || !drag || this.drawing.value) { hideGhost(); return; }
     const a = this.engine.aspect;
@@ -110,6 +110,7 @@ export class ShapeStore implements PanelTool {
     this.progress.value = [0, strokes.length];
     this.writer.write(strokes, d.a, {
       tool: s.tool, ref, speed: penSpeed(s.speed), pressure: s.pressure, taper: s.taper, wobble: s.wobble,
+      label: s.kind === 'svg' ? `SVG: ${this.svg.peek()?.name ?? 'shape'}` : `Shape: ${SHAPES.find(k => k.id === s.kind)!.label}`,
     }, {
       onProgress: (done, total) => { this.progress.value = [done, total]; },
       onDone: () => { this.drawing.value = false; this.progress.value = null; },

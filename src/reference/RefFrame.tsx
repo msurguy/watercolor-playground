@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'preact/hooks';
 import { useApp } from '../app/context';
-import { resizeTick } from '../app/resize';
+import { resizeTick, viewTick } from '../app/resize';
 
 const MIN_PX = 24;   // smallest the reference can be scaled to, in CSS px
 
@@ -28,7 +28,7 @@ export function RefFrame() {
   const gesture = useRef<Gesture | null>(null);
 
   const show = ref.adjusting.value && ref.has.value;
-  resizeTick.value;   // re-place the frame after a resize
+  resizeTick.value; viewTick.value;   // re-place the frame after a resize, zoom or pan
   const r = ref.rect.value;
   const [l, t] = engine.docToClient(r.x, r.y + r.h);
   const [rr, b] = engine.docToClient(r.x + r.w, r.y);
@@ -58,6 +58,7 @@ export function RefFrame() {
   const onDown = (e: PointerEvent) => {
     e.preventDefault();
     try { el.current!.setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
+    if (!pointers.current.size) ref.beginGesture();
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     beginGesture((e.target as HTMLElement).dataset.corner);
   };
@@ -81,9 +82,12 @@ export function RefFrame() {
   };
   const release = (e: PointerEvent) => {
     if (!pointers.current.delete(e.pointerId)) return;
+    const kind = gesture.current?.kind;
     // a pinch that loses a finger carries on as a move with the one left
-    if (pointers.current.size) beginGesture(); else gesture.current = null;
+    if (pointers.current.size) beginGesture();
+    else { gesture.current = null; ref.endGesture(kind === 'move' ? 'Reference moved' : 'Reference scaled'); }
   };
+  const wheelTimer = useRef(0);
 
   // wheel must be non-passive to stop the page zooming; attach it by hand
   useEffect(() => {
@@ -93,7 +97,11 @@ export function RefFrame() {
       e.preventDefault();
       // trackpad pinches arrive as ctrl+wheel with small deltas
       const s = Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015));
+      ref.beginGesture();
       setBox(scaleAbout(box(), s, e.clientX, e.clientY));
+      // a burst of wheel events is one scale
+      clearTimeout(wheelTimer.current);
+      wheelTimer.current = window.setTimeout(() => ref.endGesture('Reference scaled'), 400);
     };
     node.addEventListener('wheel', onWheel, { passive: false });
     return () => node.removeEventListener('wheel', onWheel);

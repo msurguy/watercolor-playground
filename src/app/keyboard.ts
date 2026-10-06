@@ -11,8 +11,21 @@ export function useKeyboard(app: AppStore) {
       const k = e.key.toLowerCase();
       if ((e.metaKey || e.ctrlKey) && k === 'z') { e.preventDefault(); if (e.shiftKey) app.redo(); else app.undo(); return; }
       if ((e.metaKey || e.ctrlKey) && k === 'y') { e.preventDefault(); app.redo(); return; }
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && k === 's') { e.preventDefault(); void app.project.save(); return; }
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && k === 'o') { e.preventDefault(); app.project.requestOpen(); return; }
+      // zoom keys replace the browser's page zoom
+      const zoomIn = k === '=' || k === '+', zoomOut = k === '-' || k === '_';
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && (zoomIn || zoomOut || e.code === 'Digit0')) {
+        e.preventDefault();
+        if (zoomIn) app.zoomIn(); else if (zoomOut) app.zoomOut(); else app.zoomTo(1);
+        return;
+      }
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (k === 'escape') { app.escape(); return; }
+      if (e.shiftKey && e.code === 'Digit1') { app.zoomToFit(); return; }
+      if (e.shiftKey && e.code === 'Digit0') { app.zoomTo(1); return; }
+      if (zoomIn) { app.zoomIn(); return; }
+      if (zoomOut) { app.zoomOut(); return; }
       const tool = [...ENGINE_TOOLS, ...PANEL_TOOLS].find(t => t.key.toLowerCase() === k);
       if (tool) app.setTool(tool.id);
       else if (k === '[' || k === ']') app.setParams({ size: Math.min(1, Math.max(0, app.params.peek().size + (k === ']' ? 0.05 : -0.05))) });
