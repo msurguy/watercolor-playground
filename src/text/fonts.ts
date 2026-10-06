@@ -77,8 +77,18 @@ export const FONTS: Record<string, FontMeta> = {
 
 export const DEFAULT_FONT = 'EMSAllure';
 
+/**
+ * Absolute URL of a file under public/fonts/single-line/. The app is built with a
+ * relative base ('./'), so the path is resolved against the page here: left
+ * relative, a url() in a CSS custom property resolves against the bundled
+ * stylesheet in assets/ instead, which 404s once deployed.
+ */
+function assetUrl(path: string): string {
+  return new URL(`${import.meta.env.BASE_URL}fonts/single-line/${path}`, document.baseURI).href;
+}
+
 export function fontUrl(key: string): string {
-  return `${import.meta.env.BASE_URL}fonts/single-line/${FONTS[key].file}.svg`;
+  return assetUrl(`${FONTS[key].file}.svg`);
 }
 
 /** "EMSReadabilityItalic" -> "EMS Readability Italic", keeps parenthesized bits. */
@@ -133,7 +143,7 @@ const ATLAS_KEYS = [
 ];
 
 export const ATLAS = {
-  url: `${import.meta.env.BASE_URL}fonts/single-line/font-atlas.png`,
+  url: assetUrl('font-atlas.png'),
   rowWidth: 260,
   rowHeight: 32,
   /** Row index of a font in the atlas, or -1 when it has no specimen. */
