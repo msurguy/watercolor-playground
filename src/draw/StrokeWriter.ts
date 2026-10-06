@@ -24,6 +24,8 @@ export interface WriteOptions {
   wobble: number;
   /** Name of the undo step the whole write becomes. */
   label: string;
+  /** Widest footprint radius allowed, in document heights (the tool's own size when unset). */
+  maxRadius?: number;
 }
 
 export interface WriteCallbacks {
@@ -138,7 +140,7 @@ export class StrokeWriter {
     }
     if (this.phase === 'begin') {
       const [x, y] = this.at(run, 0);
-      if (this.engine.scriptBegin(tool, x, y, this.pressureAt(run, 0), this.first ? this.opts.label : false)) {
+      if (this.engine.scriptBegin(tool, x, y, this.pressureAt(run, 0), this.first ? this.opts.label : false, this.opts.maxRadius)) {
         this.first = false;
         this.phase = 'draw';
         this.dist = 0;
