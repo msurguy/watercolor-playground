@@ -149,7 +149,7 @@ In development, `window.app` and `window.engine` are available in the browser co
 
 ## Credits
 
-- [inkwash](https://github.com/johnowhitaker/inkwash) by Jonathan Whitaker, for the wet-paper fluid model, and [WebGL-Fluid-Simulation](https://github.com/PavelDoGreat/WebGL-Fluid-Simulation) by Pavel Dobryakov, for the GPU fluid solver.
+- [inkwash](https://github.com/johnowhitaker/inkwash) by Jonathan Whitaker (MIT), for the wet-paper fluid model, and [WebGL-Fluid-Simulation](https://github.com/PavelDoGreat/WebGL-Fluid-Simulation) by Pavel Dobryakov, for the GPU fluid solver.
 - [water-brush](https://github.com/1000ship/water-brush) by Chun Seonghyeok, where this app started.
 - [spectral.js](https://github.com/rvanwijnen/spectral.js), for the spectral colour data.
 - Single-line fonts (Hershey, EMS, Relief and others) from [drawingbots.net](https://drawingbots.net).
